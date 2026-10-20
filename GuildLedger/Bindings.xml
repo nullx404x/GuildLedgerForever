@@ -1,0 +1,3 @@
+<Bindings>
+    <Binding name="GUILDLEDGER_TOGGLE" header="GUILDLEDGER">GuildLedger_ToggleBinding()</Binding>
+</Bindings>

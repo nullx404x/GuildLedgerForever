@@ -1,0 +1,21 @@
+Bundled unchanged from the installed TomTom libraries on 2026-10-20.
+LibStub revision 2 (public domain): https://www.wowace.com/projects/libstub
+CallbackHandler-1.0 revision 8 and LibDBIcon-1.0 revision 55: Ace3-style BSD; see Ace3-LICENSE.txt.
+https://www.curseforge.com/wow/addons/libdbicon-1-0/license
+LibDataBroker-1.1 revision 4: https://github.com/tekkub/libdatabroker-1-1
+Author: tekkub. Project license: All Rights Reserved.
+The author instructs addon developers to hard-embed this library and add a
+"tools used" relationship for libdatabroker-1-1. Guild Ledger embeds it unchanged.
+https://www.curseforge.com/wow/addons/libdatabroker-1-1/license
+Embedding instructions: https://www.wowace.com/projects/libdatabroker-1-1
+These libraries are embedded components of Guild Ledger, not standalone distributions.
+
+LibStub/LibStub.lua SHA256 02d25b7433af734b59f0c4571bfaa73b2b660992d71d2fb6a8809b32de3f964c
+CallbackHandler-1.0/CallbackHandler-1.0.lua SHA256 074ae1ebb51175f0ce8ca43ed3db151f84a9d5615aee7a48cd35042a5854711d
+LibDataBroker-1.1/LibDataBroker-1.1.lua SHA256 d79b3eada649684543bbbc3c511c2515e16d644f198fa991a201ee64d045b0f2
+LibDBIcon-1.0/LibDBIcon-1.0.lua SHA256 83c66a5a125f27b8dd60ed80212c4a342bca2f90aeb05171f074f90850fdec1e
+
+GuildLedgerDeflate: private bounded fork of LibDeflate 1.0.2-release, zlib license (included).
+Upstream https://github.com/SafeteeWoW/LibDeflate commit afc3b78d12fb3bcfa6b21e5332031ad3d7572e19.
+Modified library registration name and inflation output bound; does not replace other addons' LibDeflate.
+LibDeflate/LibDeflate.lua SHA256 416f3ff032c6a4bd7729caa9bd6cd2c10db4633dc97608f8333cac9e2b943ed1

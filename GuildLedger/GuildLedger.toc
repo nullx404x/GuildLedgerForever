@@ -1,0 +1,23 @@
+## Interface: 16001
+## Title: Guild Ledger
+## Notes: Character roster, talents, equipped gear, crafting and observed loot.
+## Author: Guild Ledger contributors
+## Version: 0.4.0
+## SavedVariables: GuildLedgerDB
+Libs/LibStub/LibStub.lua
+Libs/LibDeflate/LibDeflate.lua
+Libs/CallbackHandler-1.0/CallbackHandler-1.0.lua
+Libs/LibDataBroker-1.1/LibDataBroker-1.1.lua
+Libs/LibDBIcon-1.0/LibDBIcon-1.0.lua
+Core.lua
+Codec.lua
+Store.lua
+Catalog.lua
+Sync.lua
+Transport.lua
+Scan.lua
+UI.lua
+Preferences.lua
+Locations.lua
+Locations.xml
+Boot.lua

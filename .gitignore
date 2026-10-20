@@ -1,0 +1,17 @@
+# Keep personal data and local build artifacts out of source control.
+WTF/
+SavedVariables/
+*.bak
+*.zip
+*.sha256
+.env
+.env.*
+.reference/
+dist/
+screenshots/
+*.png
+*.jpg
+*.log
+__pycache__/
+.DS_Store
+Thumbs.db
