@@ -1,6 +1,6 @@
 # Tagged CurseForge packaging
 
-Status: packaging rules prepared; webhook and CurseForge tagged-only mode must be configured before automatic builds are active. Do not push a new version tag until a release is authorized.
+Status: the push webhook and tagged-only mode are configured. Backend package validation is in progress. Do not push a new version tag until a release is authorized.
 
 ## One-time setup
 
@@ -12,8 +12,8 @@ Status: packaging rules prepared; webhook and CurseForge tagged-only mode must b
 
 ## Release process
 
-1. Copy only audited release source into GuildLedger/. Exclude settings, private guild data and backups.
-2. Update GuildLedger/Core.lua VERSION, both TOC Version fields and GuildLedger/CHANGELOG.md to the same release number. Versions stay explicit so local installs also report correctly.
+1. Copy only audited release source into the repository root. Exclude settings, private guild data and backups.
+2. Update Core.lua VERSION, both TOC Version fields and CHANGELOG.md to the same release number. Versions stay explicit so local installs also report correctly.
 3. Run regression and release checks in the development workspace. Inspect the public diff for private data and bundled library notices.
 4. Push the approved source commit, then create and push a new version tag (for example v0.4.1). Do not move or reuse an existing release tag.
 5. Check CurseForge packaging output, file version/game compatibility, release type, changelog, and the extracted GuildLedger/GuildLedger.toc layout before announcing availability.
@@ -22,7 +22,7 @@ Tags containing alpha or beta select those release types; use a plain version ta
 
 ## Package contents
 
-The move rule lifts the existing GuildLedger/ subtree into the installable top-level GuildLedger/ directory. Bundled libraries and their notices remain included; no external dependency downloads or no-library build are configured. Root repository documentation is excluded. The addon carries its own All Rights Reserved license; third-party libraries keep their existing licenses.
+Runtime source and TOCs are at the repository root. package-as places them directly in the installable GuildLedger/ directory. Bundled libraries and their notices remain included; no external dependency downloads or no-library build are configured. Root repository documentation is excluded. The addon carries its own All Rights Reserved license; third-party libraries keep their existing licenses.
 
 Official documentation:
 - https://support.curseforge.com/support/solutions/articles/9000197281
