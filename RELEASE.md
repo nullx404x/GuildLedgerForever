@@ -1,6 +1,6 @@
 # Tagged CurseForge packaging
 
-Status: the push webhook and tagged-only mode are configured. Backend package validation is in progress. Do not push a new version tag until a release is authorized.
+Status: the push webhook and tagged-only mode are configured. Verified on 2026-10-20: build 365242 produced file 9273194 from tag v0.4.1-package1. The archive contains the expected 26 addon files under GuildLedger/, with client version 1.60.1 and Release type. Project/file moderation remains separate. Do not push a new version tag until a release is authorized.
 
 ## One-time setup
 
@@ -22,7 +22,7 @@ Tags containing alpha or beta select those release types; use a plain version ta
 
 ## Package contents
 
-Runtime source and TOCs are at the repository root. package-as places them directly in the installable GuildLedger/ directory. Bundled libraries and their notices remain included; no external dependency downloads or no-library build are configured. Root repository documentation is excluded. The addon carries its own All Rights Reserved license; third-party libraries keep their existing licenses.
+Runtime source and TOCs are at the repository root. package-as places them directly in the installable GuildLedger/ directory. Bundled libraries and their notices remain included; no external dependency downloads or no-library build are configured. RELEASE.md is excluded; player documentation and licenses are included. The addon carries its own All Rights Reserved license; third-party libraries keep their existing licenses.
 
 Official documentation:
 - https://support.curseforge.com/support/solutions/articles/9000197281
