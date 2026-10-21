@@ -150,7 +150,7 @@ function G.PreferenceControls(parent,x,y)
     share=W.button(parent,"",190,x+210,y-132,function()
         G.SetLocationSharing(not G.db.settings.shareLocation); refresh()
     end)
-    W.label(parent,"Location sharing is optional. No location history is saved.",11,x,y-170,465)
+    W.label(parent,"Map and sharing default on. Turn either off above. No history saved.",11,x,y-170,465)
     W.label(parent,"Assign an open/close key in WoW's Key Bindings.",11,x,y-204,465)
     parent:HookScript("OnShow",refresh); refresh()
 end

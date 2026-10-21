@@ -41,9 +41,9 @@ Personal Settings includes role overrides, minimap visibility and window scale. 
 
 ## Guild members on the map
 
-In Settings, turn **Guild map: shown** on to display small class-colored dots. Each player separately chooses **Share location: on** to contribute their own position. Both settings start off. The world map also has a **Guild members** checkbox for visibility.
+**Guild map: shown** and **Share location: on** are enabled by default. In Settings, turn either off to hide guild markers or stop sharing your own character's position. Previously saved choices are preserved. The world map also has a **Guild members** checkbox for visibility.
 
-Dots appear on the exact zone map reported by the player. Hover for name, level, known spec, zone and update age. Updates are sent at most once per 30-second periodic interval; disabling sharing sends a hide notice when connected. Offline members are hidden and positions expire after 90 seconds. Loading screens and instances withdraw your dot. No location history is saved, and locations are never relayed by other members. Members must run compatible 0.4.0-or-newer versions to contribute. Continents, cross-zone projection and separate phases are not resolved; dots are approximate recent positions, not a guarantee the character is visible in your phase.
+Small class-colored diamonds appear on supported zone and related continent maps. Hover for a two-line tooltip with name, level, class and known spec. Updates are sent at most once per 30-second periodic interval; disabling sharing sends a hide notice when connected. Offline members are hidden and positions expire after 90 seconds. Loading screens and instances withdraw your marker. No location history is saved, and locations are never relayed by other members. Members must run compatible 0.4.0-or-newer versions to contribute. Separate phases are not resolved; markers are approximate recent positions, not a guarantee the character is visible in your phase.
 
 ## Commands
 

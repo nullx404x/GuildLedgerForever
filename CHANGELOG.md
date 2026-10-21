@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.2
+
+- Enable guild map visibility and character location sharing by default when no preference is saved. Preserve explicit opt-outs and keep both Settings switches.
+
 ## 0.4.1
 
 - Correct specialization icons and automatic roles, including Priest Shadow Magic. Manual role choices remain supported.

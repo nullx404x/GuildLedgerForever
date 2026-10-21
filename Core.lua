@@ -1,5 +1,5 @@
 local _, G = ...
-G.VERSION = "0.4.1"
+G.VERSION = "0.4.2"
 G.PREFIX = "GLDG3"
 G.MAX_WIRE = 122880
 G.now = function() return GetServerTime() end

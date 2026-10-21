@@ -55,6 +55,8 @@ function G.InitStore()
         G.db.guild=clean; G.db.schema=3; G.scope=nil; G.store=nil
     end
     G.db.settings=type(G.db.settings)=='table' and G.db.settings or {roles={}}
+    if G.db.settings.showGuildLocations==nil then G.db.settings.showGuildLocations=true end
+    if G.db.settings.shareLocation==nil then G.db.settings.shareLocation=true end
     G.db.settings.rarity=nil; G.db.settings.watch=nil; G.db.rareLootDefault=nil
     G.db.serial=G.db.serial or 0
     G.self=G.UnitName("player")
