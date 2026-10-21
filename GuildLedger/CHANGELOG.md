@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.1
+
+- Correct specialization icons and automatic roles, including Priest Shadow Magic. Manual role choices remain supported.
+- Show shared guild locations on related zone and continent maps with small class-colored diamonds.
+- Keep map markers stable during temporary roster refreshes and reuse pins when positions change.
+- Show native two-line map tooltips with name, level, class and known specialization; preserve the tested hover fallback.
+- Update only changed map pins, cache coordinate projections and reduce idle map work.
+- Fix tooltip text helpers returning an unintended extra value.
+- Preserve settings and bundled libraries; no additional addon dependencies.
+
 ## 0.4.0
 
 - Add a saved crafting binding filter: Hide BoP (default), BoE only, BoP only, All bindings and Unknown binding. Unknown item metadata remains visible in the default view until it loads; enchant services remain visible.

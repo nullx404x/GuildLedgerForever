@@ -1,5 +1,5 @@
 local _, G = ...
-G.VERSION = "0.4.0"
+G.VERSION = "0.4.1"
 G.PREFIX = "GLDG3"
 G.MAX_WIRE = 122880
 G.now = function() return GetServerTime() end
@@ -105,4 +105,4 @@ function G.Hash(s)
 end
 function G.Keys(t) local a={}; for k in pairs(t) do a[#a+1]=k end; table.sort(a); return a end
 function G.ItemID(link) return type(link)=="string" and tonumber(link:match("item:(%d+)")) or nil end
-function G.Plain(s) return tostring(s or ""):gsub("|", "") end
+function G.Plain(s) return (tostring(s or ""):gsub("|", "")) end

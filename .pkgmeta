@@ -1,0 +1,21 @@
+# The repository contains an addon subdirectory, not a root-level TOC.
+package-as: GuildLedgerForever
+enable-nolib-creation: no
+
+move-folders:
+  GuildLedgerForever/GuildLedger: GuildLedger
+
+ignore:
+  - README.md
+  - LICENSE.txt
+  - RELEASE.md
+  - tests
+  - release
+  - dist
+  - screenshots
+  - WTF
+  - SavedVariables
+
+manual-changelog:
+  filename: GuildLedger/CHANGELOG.md
+  markup-type: markdown

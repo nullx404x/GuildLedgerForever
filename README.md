@@ -7,7 +7,7 @@ Standalone guild roster, crafting directory and shared loot feed for WoW Forever
 - [Changelog](GuildLedger/CHANGELOG.md)
 - [Bundled library notices](GuildLedger/Libs/THIRD_PARTY.txt)
 
-The `GuildLedger/` directory contains the complete addon source and embedded dependencies from release 0.4.0. Copy that directory into your client's `Interface/AddOns/` directory to install from source. No separate libraries are required.
+The `GuildLedger/` directory contains the complete addon source and embedded dependencies from release 0.4.1. Copy that directory into your client's `Interface/AddOns/` directory to install from source. No separate libraries are required.
 
 ## License
 

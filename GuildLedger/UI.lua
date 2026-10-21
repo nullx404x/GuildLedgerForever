@@ -123,19 +123,25 @@ function G.SpecSummary(d)
     if highest==0 then return "Unspent",table.concat(points," / ") end
     return table.concat(names," / "),table.concat(points," / ")
 end
+-- Keep client display names intact; resolve known alternate names for presentation.
+local specAliases={[5]={["Shadow Magic"]="Shadow"}}
+local function specKey(member,name)
+    local aliases=member and specAliases[member.class]
+    return aliases and aliases[name] or name
+end
 local specIcons={
     [1]={Arms="Ability_Warrior_SavageBlow",Fury="Ability_Warrior_InnerRage",Protection="Ability_Warrior_DefensiveStance"},
     [2]={Holy="Spell_Holy_HolyBolt",Protection="Spell_Holy_DevotionAura",Retribution="Spell_Holy_AuraOfLight"},
     [3]={["Beast Mastery"]="Ability_Hunter_BeastTaming",Marksmanship="Ability_Marksmanship",Survival="Ability_Hunter_SwiftStrike"},
     [4]={Assassination="Ability_Rogue_Eviscerate",Combat="Ability_BackStab",Subtlety="Ability_Stealth"},
-    [5]={Discipline="Spell_Holy_PowerWordShield",Holy="Spell_Holy_GuardianSpirit",Shadow="Spell_Shadow_ShadowWordPain"},
+    [5]={Discipline="Spell_Holy_PowerWordShield",Holy="Spell_Holy_HolyBolt",Shadow="Spell_Shadow_ShadowWordPain"},
     [7]={Elemental="Spell_Nature_Lightning",Enhancement="Spell_Nature_LightningShield",Restoration="Spell_Nature_MagicImmunity"},
     [8]={Arcane="Spell_Holy_MagicalSentry",Fire="Spell_Fire_FireBolt02",Frost="Spell_Frost_FrostBolt02"},
-    [9]={Affliction="Spell_Shadow_DeathCoil",Demonology="Spell_Shadow_Metamorphosis",Destruction="Spell_Shadow_RainOfFire"},
+    [9]={Affliction="Spell_Shadow_DeathCoil",Demonology="Spell_Shadow_SummonImp",Destruction="Spell_Shadow_RainOfFire"},
     [11]={Balance="Spell_Nature_StarFall",["Feral Combat"]="Ability_Racial_BearForm",Feral="Ability_Racial_BearForm",Restoration="Spell_Nature_HealingTouch"},
 }
 function G.RosterIcon(member,d)
-    local spec=G.SpecSummary(d)
+    local spec=specKey(member,G.SpecSummary(d))
     local icon=member and specIcons[member.class] and specIcons[member.class][spec]
     return icon and ("Interface\\Icons\\"..icon) or classIcon(member)
 end
@@ -160,8 +166,9 @@ function G.EffectiveRoles(m,d)
     if maximum>0 and map then
         for _,t in ipairs(d.trees) do
             if t.points==maximum then
-                if not map[t.name] then return {},"Unknown" end
-                for _,role in ipairs(map[t.name]) do seen[role]=true end
+                local key=specKey(m,t.name)
+                if not map[key] then return {},"Unknown" end
+                for _,role in ipairs(map[key]) do seen[role]=true end
             end
         end
     end
