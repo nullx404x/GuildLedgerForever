@@ -249,6 +249,7 @@ function G.InstallMapOverlay()
     G.locationToggle=toggle
     toggle:SetSize(24,24); toggle:SetPoint("TOPLEFT",WorldMapFrame,"TOPLEFT",16,0)
     local label=toggle:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    G.ApplyTextFont(label,13)
     label:SetPoint("LEFT",toggle,"RIGHT",2,0); label:SetText("Guild members")
     toggle:SetScript("OnClick",function(self) G.SetShowLocations(self:GetChecked()==true) end)
     toggle:SetScript("OnEnter",function(self)

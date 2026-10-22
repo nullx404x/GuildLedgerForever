@@ -6,10 +6,28 @@ local gold={0.88,0.73,0.43}
 local GameTooltip=_G.GameTooltip
 
 local slots={"Head","Neck","Shoulder","Shirt","Chest","Waist","Legs","Feet","Wrist","Hands","Finger 1","Finger 2","Trinket 1","Trinket 2","Back","Main hand","Off hand","Ranged","Tabard"}
+-- Keep addon-owned text consistent and render at whole physical-pixel sizes.
+-- Weak keys avoid retaining any discarded UI regions.
+local textSizes=setmetatable({},{__mode="k"})
+local function applyTextFont(region,size)
+    local scale=region.GetEffectiveScale and region:GetEffectiveScale() or 1
+    if type(scale)~="number" or scale<=0 then scale=1 end
+    local pixels=math.max(1,math.floor(size*scale+0.5))
+    region:SetFont("Fonts\\ARIALN.TTF",pixels/scale,"")
+    region:SetShadowOffset(0,0); region:SetShadowColor(0,0,0,0)
+end
+local function textFont(region,size)
+    size=math.max(13,size)
+    textSizes[region]=size; applyTextFont(region,size)
+end
+G.ApplyTextFont=textFont
+local function refreshTextFonts()
+    for region,size in pairs(textSizes) do applyTextFont(region,size) end
+end
 local function label(parent,text,size,x,y,width)
     local f=parent:CreateFontString(nil,"OVERLAY","GameFontNormal")
     f:SetPoint("TOPLEFT",x,y); f:SetWidth(width or 300); f:SetJustifyH("LEFT"); f:SetWordWrap(false)
-    f:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF",math.max(12,(size or 12)+1),""); f:SetTextColor(0.85,0.88,0.91); f:SetText(text); return f
+    textFont(f,math.max(13,size or 13)); f:SetTextColor(0.90,0.92,0.94); f:SetText(text); return f
 end
 -- Solid inset edges stay continuous at fractional UI scales. A sliced WHITE8X8
 -- backdrop edge is not a border atlas and can leave missing sides/corners.
@@ -33,7 +51,7 @@ local function panel(parent,w,h,x,y,name)
     f:SetSize(w,h); f:SetPoint("TOPLEFT",x,y)
     f:SetBackdrop({bgFile="Interface\\Buttons\\WHITE8X8",insets={left=2,right=2,top=2,bottom=2}})
     solidBorder(f)
-    f:SetBackdropColor(0.035,0.045,0.060,0.98); f:SetBackdropBorderColor(0.16,0.19,0.23,1)
+    f:SetBackdropColor(0.045,0.052,0.063,0.98); f:SetBackdropBorderColor(0.13,0.15,0.18,1)
     return f
 end
 local function button(parent,text,w,x,y,fn)
@@ -41,16 +59,37 @@ local function button(parent,text,w,x,y,fn)
     b:SetSize(w,28); b:SetPoint("TOPLEFT",x,y)
     b:SetBackdrop({bgFile="Interface\\Buttons\\WHITE8X8",insets={left=2,right=2,top=2,bottom=2}})
     solidBorder(b)
-    b:SetBackdropColor(0.10,0.12,0.14,1); b:SetBackdropBorderColor(0.21,0.24,0.28,1)
+    b:SetBackdropColor(0.10,0.115,0.13,1); b:SetBackdropBorderColor(0.16,0.18,0.21,1)
     b.text=label(b,text,12,6,0,w-12); b.text:ClearAllPoints(); b.text:SetPoint("CENTER",0,0); b.text:SetJustifyH("CENTER")
     b.SetSelected=function(self,selected)
         self.selected=selected==true
-        self:SetBackdropBorderColor(unpack(self.selected and {0.43,0.41,0.34,1} or {0.21,0.24,0.28,1}))
-        self:SetBackdropColor(unpack(self.selected and {0.15,0.16,0.17,1} or {0.10,0.12,0.14,1}))
+        self:SetBackdropBorderColor(unpack(self.selected and {0.28,0.27,0.23,1} or {0.16,0.18,0.21,1}))
+        self:SetBackdropColor(unpack(self.selected and {0.19,0.18,0.15,1} or {0.10,0.115,0.13,1}))
     end
-    b:SetScript("OnEnter",function() b:SetBackdropColor(0.18,0.19,0.20,1) end)
+    local nativeEnabled=b.SetEnabled
+    b.SetEnabled=function(self,value,reason)
+        self.disabled=value==false; self.disabledReason=reason or "Unavailable right now."
+        nativeEnabled(self,value); self:SetAlpha(self.disabled and 0.5 or 1)
+    end
+    if b.SetMotionScriptsWhileDisabled then b:SetMotionScriptsWhileDisabled(true) end
+    b.ShowDisabledReason=function(self)
+        if not self.disabled then return false end
+        GameTooltip:SetOwner(self,"ANCHOR_CURSOR"); GameTooltip:SetText(self.text:GetText() or "Unavailable")
+        GameTooltip:AddLine(self.disabledReason,0.9,0.9,0.9,true); GameTooltip:Show(); return true
+    end
+    b:SetScript("OnEnter",function() if not b:ShowDisabledReason() then b:SetBackdropColor(0.18,0.19,0.20,1) end end)
     b:SetScript("OnLeave",function() b:SetSelected(b.selected); GameTooltip:Hide() end)
     b:SetScript("OnClick",fn); return b
+end
+-- Navigation uses a quiet filled state rather than another outlined box.
+local function navigationButton(b)
+    local selected=b.SetSelected
+    b.SetSelected=function(self,value)
+        selected(self,value)
+        self:SetBackdropBorderColor(0,0,0,0)
+        if not self.selected then self:SetBackdropColor(0.08,0.09,0.105,1) end
+    end
+    b:SetSelected(false)
 end
 -- Small native icons leave the text readable at every supported UI scale.
 local function buttonIcon(b,texture)
@@ -70,7 +109,7 @@ end
 local function edit(parent,w,x,y,fn)
     local e=CreateFrame("EditBox",nil,parent,"BackdropTemplate")
     e:SetSize(w,28); e:SetPoint("TOPLEFT",x,y); e:SetAutoFocus(false); e:SetMaxLetters(200)
-    e:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF",13,""); e:SetTextInsets(10,10,0,0)
+    textFont(e,13); e:SetTextInsets(10,10,0,0)
     e:SetBackdrop({bgFile="Interface\\Buttons\\WHITE8X8"}); solidBorder(e)
     e:SetBackdropColor(0.035,0.045,0.060,1); e:SetBackdropBorderColor(0.30,0.33,0.38,1)
     e:SetScript("OnEditFocusGained",function(self) self:SetBackdropBorderColor(unpack(gold)) end)
@@ -230,12 +269,13 @@ local function linkClick(link)
     end
 end
 local function tooltip(row)
-    if U.officerPanel and U.officerPanel:IsShown() then GameTooltip:Hide(); return end
+    if U.settings and U.settings:IsShown() then GameTooltip:Hide(); return end
     local d=row.data
     if not d or d.heading then GameTooltip:Hide(); return end
     GameTooltip:Hide()
     GameTooltip:SetOwner(row.tooltipOwner or row,"ANCHOR_CURSOR")
-    if d.link then G.Safe(GameTooltip.SetHyperlink,GameTooltip,d.link) else GameTooltip:SetText(d.title or "Guild Ledger") end
+    local tooltipLink=d.tooltipLink or d.link
+    if tooltipLink then G.Safe(GameTooltip.SetHyperlink,GameTooltip,tooltipLink) else GameTooltip:SetText(d.title or "Guild Ledger") end
     if d.lines then
         for _,line in ipairs(d.lines) do GameTooltip:AddLine(line,0.90,0.93,0.96,true) end
         if d.professionLines and #d.professionLines>0 then
@@ -262,7 +302,11 @@ local function row(parent,w,h,x,y)
     r:SetScript("OnEnter",tooltip); r:SetScript("OnLeave",function() GameTooltip:Hide() end)
     r:SetScript("OnClick",function(self)
         local d=self.data
-        if d and not linkClick(d.link) and d.action then GameTooltip:Hide(); d.action() end
+        if d and not linkClick(d.link) and d.action then
+            GameTooltip:Hide(); d.action()
+            -- Selection can repaint this row. Restore only the same item's tooltip.
+            if d.link and self:IsShown() and self.data and self.data.link==d.link then tooltip(self) end
+        end
     end)
     return r
 end
@@ -272,7 +316,7 @@ local function paint(r,d,detail)
     r:Show()
     local selected=d.character and U.selected==d.character or d.recipe and (U.recipe==d.recipe or d.recipeKey and U.recipeKey==d.recipeKey) or d.loot and U.loot==d.loot
     r.selectedBar:SetShown(selected and true or false)
-    r.bg:SetColorTexture(selected and 0.16 or 0.055,selected and 0.14 or 0.068,selected and 0.10 or 0.082,1)
+    r.bg:SetColorTexture(selected and 0.15 or 0.065,selected and 0.14 or 0.075,selected and 0.11 or 0.09,1)
     r.title:SetText(d.title or ""); r.sub:SetText(d.sub or ""); r.extra:SetText(d.extra or "")
     r.title:SetTextColor(unpack(d.color or {0.86,0.88,0.90}))
     r.title:ClearAllPoints(); r.title:SetPoint("TOPLEFT",d.icon and 44 or 12,detail and -5 or -7)
@@ -295,25 +339,27 @@ local function paint(r,d,detail)
             r.lootColumns={label(r,"",14,472,-15,265),label(r,"",14,748,-15,50),label(r,"",13,816,-15,190)}
         end
         r.title:ClearAllPoints(); r.title:SetPoint("TOPLEFT",48,-15); r.title:SetWidth(408)
-        r.title:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF",15,"")
+        textFont(r.title,14)
         r.sub:Hide(); r.extra:Hide()
         local values={d.loot.owner,d.loot.data.quantity>1 and ("x"..d.loot.data.quantity) or "",date("%H:%M",d.loot.stamp)}
         r.lootColumns[1]:SetTextColor(nameColor(d.loot.owner))
+        r.lootColumns[2]:SetTextColor(0.70,0.76,0.81); r.lootColumns[3]:SetTextColor(0.70,0.76,0.81)
         for i,f in ipairs(r.lootColumns) do f:SetText(values[i]); f:Show() end
     elseif d.character then
         if not r.columns then
             r.columns={label(r,"",14,246,-7,172),label(r,"",12,430,-8,142),label(r,"",11,246,-27,172),label(r,"",11,430,-27,142)}
             r.dot=r:CreateTexture(nil,"ARTWORK"); r.dot:SetSize(4,4); r.dot:SetPoint("TOPLEFT",12,-30)
         end
-        r.icon:SetSize(20,20)
-        r.title:ClearAllPoints(); r.title:SetPoint("TOPLEFT",34,-1); r.title:SetWidth(202)
-        r.sub:ClearAllPoints(); r.sub:SetPoint("TOPLEFT",42,-16); r.sub:SetWidth(194); r.sub:SetText(d.classText); r.sub:Show()
-        r.dot:ClearAllPoints(); r.dot:SetPoint("TOPLEFT",34,-21); r.dot:Show()
+        r.icon:SetSize(24,24)
+        r.title:ClearAllPoints(); r.title:SetPoint("TOPLEFT",38,-1); r.title:SetWidth(220)
+        r.sub:ClearAllPoints(); r.sub:SetPoint("TOPLEFT",46,-16); r.sub:SetWidth(212); r.sub:SetText(d.classText.." · "..d.locationText); r.sub:Show()
+        r.dot:ClearAllPoints(); r.dot:SetPoint("TOPLEFT",38,-21); r.dot:Show()
         r.dot:SetColorTexture(d.online and 0.38 or 0.30,d.online and 0.78 or 0.34,d.online and 0.53 or 0.38,1)
         local values={d.specText,d.roleText,d.buildText,d.professionText}
         for i,f in ipairs(r.columns) do
-            f:ClearAllPoints(); f:SetPoint("TOPLEFT",(i==1 or i==3) and 246 or 430,i<=2 and -1 or -16)
-            f:SetText(values[i] or ""); f:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF",i<=2 and 13 or 12,"")
+            f:ClearAllPoints(); f:SetPoint("TOPLEFT",(i==1 or i==3) and 270 or 438,i<=2 and -1 or -16)
+            f:SetWidth((i==1 or i==3) and 156 or 134)
+            f:SetText(values[i] or ""); textFont(f,i<=2 and 13 or 12)
             f:SetTextColor(i<=2 and 0.85 or 0.70,i<=2 and 0.88 or 0.76,i<=2 and 0.91 or 0.81); f:Show()
         end
     elseif d.recipe then
@@ -321,7 +367,7 @@ local function paint(r,d,detail)
             r.recipeLabels={label(r,"",11,410,-7,162),label(r,"",11,410,-26,162)}
             for _,f in ipairs(r.recipeLabels) do f:SetJustifyH("RIGHT") end
         end
-        r.title:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF",14,"")
+        textFont(r.title,14)
         r.title:SetWidth(282)
         r.sub:ClearAllPoints(); r.sub:SetPoint("TOPLEFT",d.icon and 44 or 12,-26); r.sub:SetWidth(282)
         for i,f in ipairs(r.recipeLabels) do f:ClearAllPoints(); f:SetPoint("TOPRIGHT",-12,i==1 and -7 or -25); f:SetWidth(120) end
@@ -338,7 +384,7 @@ local function matches(text,query) return text:lower():find(query:lower(),1,true
 local function searchable(m,d)
     local roles=G.EffectiveRoles(m,d)
     local spec=G.SpecSummary(d)
-    return table.concat({m.name,className(m),table.concat(roles," "),professionNames(d),spec}," ")
+    return table.concat({m.name,className(m),table.concat(roles," "),professionNames(d),spec,m.online and m.zone or ""}," ")
 end
 local function allWords(text,query)
     for word in query:lower():gmatch("%S+") do if not matches(text,word) then return false end end
@@ -370,6 +416,7 @@ function U:MatchesBinding(link)
     return bind~=1
 end
 function U:LootMatches(r)
+    if not G.GuildLootEnabled() then return false end
     local quality=r.data.quality
     return quality~=nil and quality>=(G.GreenCaptureEnabled() and 2 or 3) and r.stamp>G.now()-7*86400
 end
@@ -388,7 +435,8 @@ function U:BuildList()
                 local selected=name
                 local spec,distribution=G.SpecSummary(d)
                 local professions=G.OrderedProfessions(d)
-                result[#result+1]={sort=name,character=name,title=name,icon=G.RosterIcon(m,d),color={nameColor(name)},rank=m.rank,online=m.online,classText=m.level.." "..className(m),roleText=roles~="" and roles or "Unassigned",specText=spec,buildText=distribution,professionText=professions[1] and (professions[1].name..(#professions>1 and " +"..(#professions-1) or "")) or "",prof1=professions[1] and professions[1].name or "—",prof2=professions[2] and (professions[2].name..(#professions>2 and " +"..(#professions-2) or "")) or "",lines={m.level.." "..className(m).." - "..(m.online and "Online" or "Offline"),"Spec: "..spec,"Role: "..(roles~="" and roles or "Unassigned"),"Rank: "..m.rank},professionLines=professions,action=function() U.selected=selected; U.showInfo=false; U.detailOffset=0; U:Render() end}
+                local location=m.online and (m.zone or "Location unavailable") or "Offline"
+                result[#result+1]={sort=name,character=name,title=name,icon=G.RosterIcon(m,d),color={nameColor(name)},rank=m.rank,online=m.online,locationText=location,classText=m.level.." "..className(m),roleText=roles~="" and roles or "Unassigned",specText=spec,buildText=distribution,professionText=professions[1] and (professions[1].name..(#professions>1 and " +"..(#professions-1) or "")) or "",prof1=professions[1] and professions[1].name or "—",prof2=professions[2] and (professions[2].name..(#professions>2 and " +"..(#professions-2) or "")) or "",lines={m.level.." "..className(m).." - "..(m.online and "Online" or "Offline"),"Spec: "..spec,"Role: "..(roles~="" and roles or "Unassigned"),"Rank: "..m.rank,"Location: "..location},professionLines=professions,action=function() U.selected=selected; U.showInfo=false; U.detailOffset=0; U:Render() end}
             end
         end
         table.sort(result,function(a,b) return a.sort<b.sort end)
@@ -410,7 +458,7 @@ function U:BuildList()
                             local _,icon=itemText(r.link)
                             local names=self:RecipeCrafters(r,p); local online=0
                             for _,name in ipairs(names) do if G.members[name].online then online=online+1 end end
-                            local entry={sort=r.name..key,recipe=r,recipeKey=key,title=r.name,icon=icon,sub=#names..(#names==1 and " crafter" or " crafters"),professionName=p.data.name,online=online>0,onlineText=online>0 and (online.." online") or "Offline",link=r.link,action=function() U.recipe=r; U.profession=p; U.recipeKey=key; U.detailOffset=0; U:Render() end}
+                            local entry={sort=r.name..key,recipe=r,recipeKey=key,title=r.name,icon=icon,sub=#names..(#names==1 and " crafter" or " crafters"),professionName=p.data.name,online=online>0,onlineText=online>0 and (online.." online") or "Offline",link=r.link,tooltipLink="spell:"..r.id,action=function() U.recipe=r; U.profession=p; U.recipeKey=key; U.detailOffset=0; U:Render() end}
                             grouped[key]=entry; result[#result+1]=entry
                         end
                     end
@@ -439,15 +487,23 @@ function U:BuildDetails()
     local function add(text,link,tip) local icon; if link then local ignored; ignored,icon=itemText(link) end; rows[#rows+1]={title=text,link=link,tip=tip,icon=icon} end
     if self.showInfo then
         self.detailTitle:SetText("Guild information")
-        add("Message of the day")
-        for line in (G.Plain(G.motd).."\n"):gmatch("([^\n]*)\n") do
-            for i=1,math.max(1,#line),48 do add(line:sub(i,i+47)) end
+        local function paragraph(value)
+            for line in (G.Plain(value).."\n"):gmatch("([^\n]*)\n") do
+                local current=""
+                for word in line:gmatch("%S+") do
+                    if current~="" and #current+#word+1>48 then add(current); current="" end
+                    current=current=="" and word or current.." "..word
+                end
+                add(current)
+            end
         end
+        add("Message of the day")
+        paragraph(G.motd)
         add("Guild information")
-        for line in (G.Plain(G.guildInfo).."\n"):gmatch("([^\n]*)\n") do for i=1,math.max(1,#line),48 do add(line:sub(i,i+47)) end end
+        paragraph(G.guildInfo)
     elseif self.tab=="Roster" then
         local name=self.selected
-        if not name or not G.members[name] then self.detailTitle:SetText("Select a guild character"); add("Select a character to see their spec."); add("Tree names and points summarize each build."); return rows end
+        if not name or not G.members[name] then self.detailTitle:SetText("Member details"); add("Select someone from the roster."); add("View their build, gear and professions here."); return rows end
         self.detailTitle:SetText(name)
         local r=G.Get("profile",name); local d=r and r.data
         if self.section=="Spec" then
@@ -497,14 +553,15 @@ local gathering={[182]=true,[186]=true,[393]=true,[356]=true}
 function U:CreateProfessions(parent)
     local f=CreateFrame("Frame",nil,parent); self.professionPanel=f; f:SetAllPoints(parent)
     self.professionAge=label(f,"",11,16,-104,384)
-    self.professionEmpty=label(f,"No professions shared yet.",14,24,-158,360)
+    self.professionEmpty=label(f,"No professions shared. Open a profession to share it.",14,24,-158,360); self.professionEmpty:SetWordWrap(true); self.professionEmpty:SetHeight(60)
     self.professionCards={}
     for i=1,6 do
         local c=panel(f,384,48,16,-128-(i-1)*52); self.professionCards[i]=c
+        c:SetBackdropBorderColor(0,0,0,0); c:SetBackdropColor(0.065,0.075,0.09,1)
         c.icon=c:CreateTexture(nil,"ARTWORK"); c.icon:SetSize(32,32); c.icon:SetPoint("TOPLEFT",10,-8); c.icon:SetTexCoord(0.07,0.93,0.07,0.93)
         c.initial=label(c,"",16,10,-14,32); c.initial:SetTextColor(unpack(gold)); c.initial:SetJustifyH("CENTER")
         c.name=label(c,"",13,52,-6,200)
-        c.rank=label(c,"",12,266,-6,106); c.rank:SetJustifyH("RIGHT"); c.rank:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF",12,"")
+        c.rank=label(c,"",12,266,-6,106); c.rank:SetJustifyH("RIGHT"); textFont(c.rank,12)
         c.track=c:CreateTexture(nil,"BACKGROUND"); c.track:SetColorTexture(0.14,0.18,0.21,1)
         c.track:SetSize(210,6); c.track:SetPoint("TOPLEFT",52,-30)
         c.fill=c:CreateTexture(nil,"ARTWORK"); c.fill:SetColorTexture(0.38,0.70,0.56,1)
@@ -516,7 +573,7 @@ function U:CreateProfessions(parent)
             U.onlineButton.text:SetText("All members"); U.offset=0; U.detailOffset=0
             U.recipe=nil; U.profession=nil; U:Render()
         end)
-        c.recipes:SetHeight(24); c.recipes.text:ClearAllPoints(); c.recipes.text:SetPoint("CENTER",0,0); c.recipes.text:SetWidth(90); c.recipes.text:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF",12,"")
+        c.recipes:SetHeight(24); c.recipes.text:ClearAllPoints(); c.recipes.text:SetPoint("CENTER",0,0); c.recipes.text:SetWidth(90); textFont(c.recipes.text,12)
         c.status=label(c,"",10,266,-27,106); c.status:SetJustifyH("RIGHT")
         c:EnableMouse(true)
         c:SetScript("OnEnter",function()
@@ -581,13 +638,14 @@ function U:CreateRecipe(parent)
     self.recipePreview:SetScript("OnEnter",tooltip); self.recipePreview:SetScript("OnLeave",function() GameTooltip:Hide() end)
     self.recipePreview:SetScript("OnClick",function(self) if self.data then linkClick(self.data.link) end end)
     self.recipeIcon=self.recipePreview:CreateTexture(nil,"ARTWORK"); self.recipeIcon:SetAllPoints()
-    self.materialHeading=label(f,"INGREDIENTS",11,16,-78,440)
+    self.materialHeading=label(f,"Materials",14,16,-78,440)
     local rule=f:CreateTexture(nil,"BACKGROUND"); rule:SetColorTexture(0.19,0.22,0.26,1); rule:SetSize(504,1); rule:SetPoint("TOPLEFT",16,-65)
     label(f,"QTY",10,466,-78,54):SetJustifyH("RIGHT")
     self.materialRows={}; self.crafterCards={}
     for i=1,8 do
         self.materialRows[i]=row(f,504,36,16,-102-(i-1)*40)
         local c=panel(f,504,36,16,-102-(i-1)*40); self.crafterCards[i]=c
+        c:SetBackdropBorderColor(0,0,0,0); c:SetBackdropColor(0.065,0.075,0.09,1)
         c.owner=label(c,"",14,12,-9,280)
         c.status=label(c,"",11,294,-11,100)
         c.contact=button(c,"Whisper",88,404,-4,function() if c.target and G.members[c.target] then ChatFrame_SendTell(c.target) end end)
@@ -627,7 +685,7 @@ function U:RenderRecipe()
     end
     if #entries==0 then entries[1]={title="No ingredient list shared."} end
     local names=self:RecipeCrafters(r,p)
-    entries[#entries+1]={title="GUILD CRAFTERS  ("..#names..")",color=gold,heading=true}
+    entries[#entries+1]={title="Guild crafters ("..#names..")",color={0.85,0.88,0.91},heading=true}
     for _,name in ipairs(names) do entries[#entries+1]={crafter=name} end
     self.recipeEntries=entries
     self.detailOffset=math.max(0,math.min(self.detailOffset,math.max(0,#entries-8)))
@@ -661,25 +719,26 @@ function G.SpecHighlights(d)
 end
 function U:CreateSpec(parent)
     local f=CreateFrame("Frame",nil,parent); f:SetAllPoints(parent); self.specPanel=f
-    self.specIcon=f:CreateTexture(nil,"ARTWORK"); self.specIcon:SetSize(36,36); self.specIcon:SetPoint("TOPLEFT",16,-110); self.specIcon:SetTexCoord(0.07,0.93,0.07,0.93)
-    self.specName=label(f,"",20,64,-108,336); self.specName:SetTextColor(unpack(gold))
+    self.specIcon=f:CreateTexture(nil,"ARTWORK"); self.specIcon:SetSize(40,40); self.specIcon:SetPoint("TOPLEFT",16,-110); self.specIcon:SetTexCoord(0.07,0.93,0.07,0.93)
+    self.specName=label(f,"",20,68,-108,328); self.specName:SetTextColor(0.94,0.94,0.92)
     self.specBadge=panel(f,190,24,64,-139); self.specBadge:EnableMouse(true); self.specBadge:SetBackdropColor(0.07,0.13,0.12,1)
+    self.specBadge:SetBackdropBorderColor(0,0,0,0)
     self.specRole=label(self.specBadge,"",12,8,-4,174); self.specRole:SetTextColor(0.65,0.84,0.77)
     self.specBadge:SetScript("OnEnter",tooltip); self.specBadge:SetScript("OnLeave",function() GameTooltip:Hide() end)
     self.specTrees={}
     for i=1,3 do
-        local c=panel(f,122,108,16+(i-1)*131,-180); self.specTrees[i]=c
-        c.icon=c:CreateTexture(nil,"ARTWORK"); c.icon:SetSize(28,28); c.icon:SetPoint("TOPLEFT",12,-12); c.icon:SetTexCoord(0.07,0.93,0.07,0.93)
-        c.points=label(c,"",25,50,-10,60); c.points:SetJustifyH("RIGHT")
-        c.name=label(c,"",12,12,-53,98); c.name:SetWordWrap(true); c.name:SetHeight(40)
+        local c=panel(f,384,38,16,-180-(i-1)*44); self.specTrees[i]=c
+        c.icon=c:CreateTexture(nil,"ARTWORK"); c.icon:SetSize(26,26); c.icon:SetPoint("TOPLEFT",10,-6); c.icon:SetTexCoord(0.07,0.93,0.07,0.93)
+        c.points=label(c,"",18,308,-9,64); c.points:SetJustifyH("RIGHT")
+        c.name=label(c,"",14,48,-11,246)
         c:EnableMouse(true); c:SetScript("OnEnter",tooltip); c:SetScript("OnLeave",function() GameTooltip:Hide() end)
     end
-    self.specSummary=label(f,"",11,16,-304,384); self.specSummary:SetTextColor(0.70,0.76,0.81)
+    self.specSummary=label(f,"",11,16,-316,384); self.specSummary:SetTextColor(0.70,0.76,0.81)
     self.specEmpty=label(f,"",14,16,-190,384); self.specEmpty:SetWordWrap(true); self.specEmpty:SetHeight(86)
-    self.specHighlightTitle=label(f,"TALENT ABILITIES",10,16,-336,384); self.specHighlightTitle:SetTextColor(unpack(gold))
+    self.specHighlightTitle=label(f,"Talent abilities",13,16,-344,384); self.specHighlightTitle:SetTextColor(0.82,0.85,0.89)
     self.specAbilities={}
-    for i=1,3 do self.specAbilities[i]=row(f,384,24,16,-356-(i-1)*27) end
-    self.specAbilityEmpty=label(f,"No active talent abilities shared yet.",11,16,-358,384); self.specAbilityEmpty:SetTextColor(0.70,0.76,0.81)
+    for i=1,3 do self.specAbilities[i]=row(f,384,24,16,-366-(i-1)*25) end
+    self.specAbilityEmpty=label(f,"No active talent abilities shared yet.",11,16,-368,384); self.specAbilityEmpty:SetTextColor(0.70,0.76,0.81)
     self.specUpdated=label(f,"",10,16,-446,384); self.specUpdated:SetTextColor(0.64,0.70,0.76)
     f:Hide()
 end
@@ -706,7 +765,8 @@ function U:RenderSpec()
             local dominant=t.points>0 and t.points==highest
             c.name:SetText(t.name); c.points:SetText(tostring(t.points))
             c.points:SetTextColor(unpack(dominant and gold or {0.72,0.77,0.82}))
-            c:SetBackdropBorderColor(unpack(dominant and gold or {0.16,0.19,0.23}))
+            c:SetBackdropBorderColor(0,0,0,0)
+            c:SetBackdropColor(unpack(dominant and {0.15,0.14,0.11,1} or {0.065,0.075,0.09,1}))
             local treeIcon=G.RosterIcon(member,{trees={{name=t.name,points=1}}})
             c.icon:SetTexture(treeIcon); c.icon:SetShown(treeIcon~=nil)
             c.data={title=t.name,tip=t.points..(t.points==1 and " point spent" or " points spent")..(dominant and (ties>1 and " - Joint primary tree" or " - Primary tree") or "")}
@@ -781,8 +841,15 @@ function U:RenderGear()
 end
 function U:Render()
     if not self.frame or not self.frame:IsShown() then return end
-    if self.officerButton then self.officerButton:SetShown(G.IsOfficer(G.self)) end
-    if self.officerPanel and self.officerPanel:IsShown() then self.officerPanel.refresh() end
+    local lootEnabled=G.GuildLootEnabled()
+    if not lootEnabled then
+        if self.tab=="Guild Loot" then self:SwitchTab("Roster"); self.offset=0 end
+        if self.section=="Loot" then self.section="Spec"; self.detailOffset=0 end
+    end
+    self.tabs["Guild Loot"]:SetShown(lootEnabled)
+    self.sectionButtons[4]:SetShown(lootEnabled)
+    if self.officerButton then self.officerButton:SetShown(G.HasOfficerTools(G.self)) end
+    if self.settings and self.settings:IsShown() and self.settings.refresh then self.settings.refresh() end
     self.fullLoot=self.tab=="Guild Loot" and not self.showInfo
     local crafting=self.tab=="Crafting"
     local leftWidth=self.fullLoot and 1032 or crafting and 480 or 600
@@ -793,7 +860,7 @@ function U:Render()
     for i,r in ipairs(self.rows) do
         r:SetWidth(leftWidth-16); r:SetHeight(self.tab=="Roster" and 30 or crafting and 40 or 47)
         r:ClearAllPoints(); r:SetPoint("TOPLEFT",8,-38-(i-1)*(self.tab=="Roster" and 32 or crafting and 44 or 48))
-        r.title:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF",13,"")
+        textFont(r.title,13)
     end
     self.previous:ClearAllPoints(); self.previous:SetPoint("TOPLEFT",leftWidth-108,-430)
     self.nextPage:ClearAllPoints(); self.nextPage:SetPoint("TOPLEFT",leftWidth-60,-430)
@@ -808,11 +875,11 @@ function U:Render()
     self.previous:ClearAllPoints(); self.previous:SetPoint("TOPLEFT",leftWidth-108,footer)
     self.nextPage:ClearAllPoints(); self.nextPage:SetPoint("TOPLEFT",leftWidth-60,footer)
     self.count:ClearAllPoints(); self.count:SetPoint("TOPLEFT",16,footer-10)
-    self.searchHint:SetText(self.tab=="Guild Loot" and "Search items or recipients" or self.tab=="Roster" and "Name, spec or role" or "Item or crafter")
+    self.searchHint:SetText(self.tab=="Guild Loot" and "Search items or recipients" or self.tab=="Roster" and "Name, spec, role or zone" or "Item or crafter")
     for _,h in ipairs(self.lootHeaders) do h:SetShown(self.fullLoot) end
     local online=0; for _,m in pairs(G.members) do if m.online then online=online+1 end end
     self.guild:SetText((G.guildName or "Join a guild to begin").."  ·  "..online.." online / "..G.Count(G.members).." members")
-    self.motd:SetText(self.tab=="Roster" and "Find guild members by class, spec or role." or self.tab=="Crafting" and (self.craftOwner and ((self.craftName or "All").." recipes · "..self.craftOwner) or "Find a recipe and the guild members who know it.") or ((G.GreenCaptureEnabled() and "Uncommon and above" or "Rare and above").." · Last 7 days · Newest first"))
+    self.motd:SetText(self.tab=="Roster" and "Members, builds and professions" or self.tab=="Crafting" and (self.craftOwner and ((self.craftName or "All").." recipes · "..self.craftOwner) or "Find a recipe · Choose a guild crafter") or ((G.GreenCaptureEnabled() and "Uncommon and above" or "Rare and above").." · Last 7 days · Newest first"))
     self.professionButton:SetShown(self.tab=="Crafting"); self.professionButton.text:SetText(self.craftSkill and self.craftName or "All professions")
     self.qualityButton:SetShown(self.tab=="Crafting"); self.qualityButton.text:SetText(self.craftQuality or "All rarities")
     self.bindingButton:SetShown(self.tab=="Crafting"); self.bindingButton.text:SetText(self.craftBinding or "Hide BoP")
@@ -833,9 +900,13 @@ function U:Render()
             r:ClearAllPoints(); r:SetPoint("TOPLEFT",8,-y); r:SetHeight(42); y=y+44
         end
     end
-    self.empty:SetText(not G.scope and "Join a guild to use Guild Ledger." or not G.ready and "Waiting for a complete guild roster…" or #list==0 and (self.tab=="Roster" and "No characters match your filters." or self.tab=="Guild Loot" and "No guild loot recorded in the last seven days." or "No recipes match. Try another profession or clear filters.") or "")
+    self.empty:SetWordWrap(true); self.empty:SetHeight(80)
+    self.empty:SetText(not G.scope and "Join a guild to use Guild Ledger." or not G.ready and "Loading guild members… The list will appear automatically." or #list==0 and (self.tab=="Roster" and "No members match these filters. Try All members or Clear." or self.tab=="Guild Loot" and "No guild loot recorded in the last seven days. New qualifying items appear here as members share them." or "No recipes to show. Clear filters to see more; open your profession window to share your own recipes.") or "")
+    self.previous:SetEnabled(self.offset>0,"You are on the first page.")
+    self.nextPage:SetEnabled(self.offset+self.pageSize<#list,"You are on the last page.")
     self.count:SetText(#list==0 and "0 results" or ((self.offset+1).."–"..math.min(self.offset+self.pageSize,#list).." of "..#list.." results"))
-    for _,b in ipairs(self.sectionButtons) do b:SetShown(self.tab=="Roster" and not self.showInfo) end
+    for i,b in ipairs(self.sectionButtons) do b:SetShown(self.tab=="Roster" and not self.showInfo and (i~=4 or lootEnabled)) end
+    if G.ready and self.selected and not G.members[self.selected] then self.selected=nil end
     local m=self.tab=="Roster" and G.members[self.selected]
     self.detailSubtitle:SetText(m and (m.level.." "..className(m).."  ·  "..m.rank.."  ·  "..(m.online and "Online" or "Offline")) or (self.tab=="Crafting" and "Recipes & guild crafters" or ""))
     self.detailTitle:SetTextColor(unpack(m and {nameColor(self.selected)} or gold))
@@ -846,7 +917,7 @@ function U:Render()
     self.detailCount:SetText(#details>14 and ((self.detailOffset+1).."–"..math.min(self.detailOffset+14,#details).." of "..#details.."  ·  Scroll for more") or (self.tab=="Crafting" and "Hover an item for details" or ""))
     local gearVisible=self:RenderGear(); local professionVisible=self:RenderProfessions(); local recipeVisible=self:RenderRecipe(); local specVisible=self:RenderSpec()
     if gearVisible or professionVisible or recipeVisible or specVisible then for _,r in ipairs(self.details) do r:Hide() end end
-    self.status:SetText(not G.ready and "Loading guild roster…" or (G.SyncProgress and G.SyncProgress() or G.PeerSummary and G.PeerSummary() or (G.Count(G.peers).." connected addon peers")))
+    self.status:SetText(G.FriendlySyncStatus and G.FriendlySyncStatus() or "Loading guild data…")
     local _,warning=next(G.errors)
     self.notice:SetText(warning and ("Status: "..tostring(warning)) or (self.tab=="Guild Loot" and "Observed drops only · Trades are not tracked" or ""))
     if G.SavePreferences then G.SavePreferences() end
@@ -888,39 +959,19 @@ function U:Choose(anchor,options,current,selectOption,multi)
     f.draw=draw; draw(); f:Show()
 end
 function U:Settings()
-    if self.settings then self.settings:SetShown(not self.settings:IsShown()); return end
-    local f=panel(self.frame,510,458,285,-100); f:SetFrameLevel(self.frame:GetFrameLevel()+40); self.settings=f; f:EnableMouse(true); f:SetBackdropColor(0.035,0.045,0.060,1)
-    self.officerButton=button(f,"Officer settings",150,20,-412,function() G.ShowOfficerSettings() end)
-    self.officerButton:SetShown(G.IsOfficer(G.self))
-    label(f,"Your roles",20,20,-20,380)
-    button(f,"Close",65,425,-16,function() f:Hide() end)
-    label(f,"Automatic uses your spec. Choose roles to override it.",12,20,-62,470)
-    local buttons={}; self.roleChoices=buttons
-    local function refresh()
-        local selected={}; for _,role in ipairs(G.db.settings.roles) do selected[role]=true end
-        for role,b in pairs(buttons) do b:SetSelected(role=="Automatic" and #G.db.settings.roles==0 or selected[role]==true) end
-    end
-    local function publish()
-        local r=G.Get("profile",G.self)
-        if r then local d=G.Decode(G.Encode(r.data)); d.roles=G.db.settings.roles; G.Publish("profile",d) end
-        refresh(); U:Render()
-    end
-    buttons.Automatic=button(f,"Automatic",110,20,-96,function() G.db.settings.roles={}; publish() end)
-    for i,role in ipairs({"Tank","Healer","DPS"}) do
-        buttons[role]=button(f,role,110,20+i*120,-96,function()
-            local list,had={},false
-            for _,v in ipairs(G.db.settings.roles) do if v==role then had=true else list[#list+1]=v end end
-            if not had then list[#list+1]=role end
-            G.db.settings.roles=list; publish()
-        end)
-    end
-    label(f,"Feral defaults to Tank / DPS. Your choice is shared.",11,20,-137,470)
-    if G.PreferenceControls then G.PreferenceControls(f,20,-180) end
-    refresh()
+    if self.settings and self.settings:IsShown() then self.settings:Hide(); return end
+    G.OpenSettingsPage()
 end
 function U:SwitchTab(tab)
     self.onlineByTab=self.onlineByTab or {Roster=true,Crafting=false}
     if self.tab~="Guild Loot" then self.onlineByTab[self.tab]=self.online end
+    self.tabViews=self.tabViews or {}
+    if self.tab~=tab then
+        self.tabViews[self.tab]={query=self.query,offset=self.offset,detailOffset=self.detailOffset}
+        local view=self.tabViews[tab] or {}
+        self.query=view.query or ""; self.offset=view.offset or 0; self.detailOffset=view.detailOffset or 0
+        if self.search then self.search:SetText(self.query) end
+    end
     self.tab=tab
     self.online=self.onlineByTab[tab] or false
     self.onlineButton.text:SetText(self.online and "Online only" or "All members")
@@ -931,23 +982,29 @@ function U:Create()
     local f=panel(UIParent,1080,700,0,0,"GuildLedgerWindow"); self.frame=f; f:SetFrameStrata("DIALOG")
     f:ClearAllPoints(); f:SetPoint("CENTER"); f:SetClampedToScreen(true); f:SetMovable(true); f:EnableMouse(true); f:RegisterForDrag("LeftButton")
     f:SetScript("OnDragStart",f.StartMoving); f:SetScript("OnDragStop",function(self) self:StopMovingOrSizing(); local _,_,_,x,y=self:GetPoint(); G.db.position={x=x,y=y} end)
-    local function scale() f:SetScale(math.min(G.db.settings.uiScale or 1,(UIParent:GetWidth()-24)/1080,(UIParent:GetHeight()-24)/700)) end
+    local function scale()
+        f:SetScale(math.min(G.db.settings.uiScale or 1,(UIParent:GetWidth()-24)/1080,(UIParent:GetHeight()-24)/700))
+        refreshTextFonts()
+    end
     scale(); G.ScaleUI=scale
     UISpecialFrames=UISpecialFrames or {}; table.insert(UISpecialFrames,"GuildLedgerWindow")
     if G.db.position then f:ClearAllPoints(); f:SetPoint("CENTER",UIParent,"CENTER",G.db.position.x,G.db.position.y) end
-    label(f,"Guild Ledger",24,24,-18,600):SetTextColor(unpack(gold))
+    label(f,"Guild Ledger",22,24,-18,600):SetTextColor(unpack(gold))
     self.guild=label(f,"",12,25,-49,700)
-    local divider=f:CreateTexture(nil,"ARTWORK"); divider:SetColorTexture(0.25,0.22,0.15,1); divider:SetSize(1032,1); divider:SetPoint("TOPLEFT",24,-66)
+    local divider=f:CreateTexture(nil,"ARTWORK"); divider:SetColorTexture(0.15,0.17,0.20,1); divider:SetSize(1032,1); divider:SetPoint("TOPLEFT",24,-66)
     button(f,"×",32,1024,-20,function() f:Hide() end)
     button(f,"Settings",90,920,-20,function() U:Settings() end)
-    self.discordButton=button(f,"Discord",130,778,-20,function() G.ShowDiscord() end)
-    buttonIcon(self.discordButton,"Interface\\Icons\\INV_Misc_GroupNeedMore")
+    self.discordButton=button(f,"Discord",112,796,-20,function() G.ShowDiscord() end)
+    buttonIcon(self.discordButton,"Interface\\ChatFrame\\UI-ChatIcon-Chat-Up")
+    self.discordButton.icon:SetTexCoord(0.1,0.9,0.1,0.9)
+    self.discordButton.icon:SetSize(22,22)
+    self.discordButton.icon:SetVertexColor(1,1,1)
     self.discordButton:SetScript("OnEnter",function(b) b:SetBackdropColor(0.16,0.18,0.32,1); tooltip({tooltipOwner=b,data={title="Guild Discord",tip="Open the guild invite link to copy into your browser."}}) end)
     self.tabs={}
-    for i,tab in ipairs({"Roster","Crafting","Guild Loot"}) do self.tabs[tab]=button(f,tab,125,24+(i-1)*133,-78,function() U:SwitchTab(tab); U.offset=0; U.detailOffset=0; U.showInfo=false; if U.picker then U.picker:Hide() end; if U.rarityPicker then U.rarityPicker:Hide() end; U:Render() end) end
-    for tab,icon in pairs({Roster="INV_Misc_GroupNeedMore",Crafting="Trade_BlackSmithing",["Guild Loot"]="INV_Misc_Bag_10"}) do buttonIcon(self.tabs[tab],"Interface\\Icons\\"..icon) end
+    for i,tab in ipairs({"Roster","Crafting","Guild Loot"}) do self.tabs[tab]=button(f,tab,125,24+(i-1)*133,-78,function() U:SwitchTab(tab); U.showInfo=false; if U.picker then U.picker:Hide() end; if U.rarityPicker then U.rarityPicker:Hide() end; U:Render() end) end
+    for tab,icon in pairs({Roster="INV_Misc_Book_09",Crafting="Trade_BlackSmithing",["Guild Loot"]="INV_Misc_Bag_10"}) do buttonIcon(self.tabs[tab],"Interface\\Icons\\"..icon); navigationButton(self.tabs[tab]) end
     button(f,"Guild info",100,956,-78,function() U.showInfo=not U.showInfo; U.detailOffset=0; U:Render() end)
-    self.motd=label(f,"",11,24,-119,1032); self.motd:SetTextColor(0.70,0.68,0.58)
+    self.motd=label(f,"",11,24,-119,1032); self.motd:SetTextColor(0.70,0.76,0.81)
     self.search=edit(f,244,24,-150,function(text) G.After("search",0.2,function() U.query=text; U.offset=0; U:Render() end) end)
     self.searchHint=label(self.search,"Search characters, professions or items",12,10,0,224)
     self.searchHint:ClearAllPoints(); self.searchHint:SetPoint("LEFT",10,0)
@@ -957,7 +1014,7 @@ function U:Create()
     self.search:HookScript("OnEditFocusGained",function() self.searchHint:Hide() end)
     self.search:HookScript("OnEditFocusLost",function(e) self.searchHint:SetShown(self.tab~="Guild Loot" and e:GetText()=="") end)
     local online=button(f,self.online and "Online only" or "All members",110,274,-150,function(b) U.online=not U.online; b.text:SetText(U.online and "Online only" or "All members"); U.offset=0; U:Render() end)
-    self.clearButton=button(f,"Clear",68,988,-150,function() U.craftBinding=nil; U.craftQuality=nil; U.craftOwner=nil; U.craftSkill=nil; U.craftName=nil; U.search:SetText(""); U.query=""; U.role="Any role"; U.class="Any class"; U.spec="Any spec"; U.online=U.tab=="Roster"; online.text:SetText(U.online and "Online only" or "All members"); U.roleButton.text:SetText(U.role); U.classButton.text:SetText(U.class); U.specButton.text:SetText(U.spec); if U.picker then U.picker:Hide() end; if U.rarityPicker then U.rarityPicker:Hide() end; U.offset=0; U:Render() end)
+    self.clearButton=button(f,"Clear",68,988,-150,function() if U.tab=="Crafting" then U.craftBinding=nil; U.craftQuality=nil; U.craftOwner=nil; U.craftSkill=nil; U.craftName=nil else U.role="Any role"; U.class="Any class"; U.spec="Any spec" end; U.search:SetText(""); U.query=""; U.online=U.tab=="Roster"; online.text:SetText(U.online and "Online only" or "All members"); U.roleButton.text:SetText(U.role); U.classButton.text:SetText(U.class); U.specButton.text:SetText(U.spec); if U.picker then U.picker:Hide() end; if U.rarityPicker then U.rarityPicker:Hide() end; U.offset=0; U:Render() end)
     self.roleButton=button(f,"Any role",120,396,-150,function(b)
         U:Choose(b,{"Any role","Tank","Healer","DPS"},U.role,function(value) U.role=value; b.text:SetText(value) end)
     end)
@@ -1002,11 +1059,16 @@ function U:Create()
     self.roleButton.text:SetText(self.role); self.classButton.text:SetText(self.class); self.specButton.text:SetText(self.spec)
     self.onlineButton=online
     local left=panel(f,600,466,24,-190); local right=panel(f,416,466,640,-190)
+    left:SetBackdropBorderColor(0,0,0,0); right:SetBackdropBorderColor(0,0,0,0)
+    local detailRule=right:CreateTexture(nil,"ARTWORK"); detailRule:SetColorTexture(0.17,0.19,0.22,1)
+    detailRule:SetPoint("TOPLEFT",0,0); detailRule:SetPoint("BOTTOMLEFT",0,0); detailRule:SetWidth(1)
     self.left,self.right=left,right
-    self.dayHeadings={}; for i=1,8 do self.dayHeadings[i]=label(left,"",11,16,-38,950); self.dayHeadings[i]:SetTextColor(unpack(gold)); self.dayHeadings[i]:Hide() end
+    self.dayHeadings={}; for i=1,8 do self.dayHeadings[i]=label(left,"",11,16,-38,950); self.dayHeadings[i]:SetTextColor(0.70,0.76,0.81); self.dayHeadings[i]:Hide() end
     self.lootHeaders={label(left,"RECIPIENT",11,480,-14,265),label(left,"QTY",11,756,-14,50),label(left,"RECEIVED",11,824,-14,190)}
     self.listHeading=label(left,"CHARACTER",10,20,-14,200)
-    self.columnHeaders={label(left,"SPEC / POINTS",10,254,-14,172),label(left,"ROLE / SKILLS",10,438,-14,145)}
+    self.columnHeaders={label(left,"SPEC / POINTS",10,278,-14,156),label(left,"ROLE / SKILLS",10,446,-14,134)}
+    self.listHeading:SetTextColor(0.70,0.76,0.81)
+    for _,headers in ipairs({self.columnHeaders,self.lootHeaders}) do for _,h in ipairs(headers) do h:SetTextColor(0.70,0.76,0.81) end end
     for i=1,12 do self.rows[i]=row(left,584,47,8,-38-(i-1)*48) end
     self.empty=label(left,"",14,20,-120,510)
     self.count=label(left,"",11,16,-440,350)
@@ -1016,7 +1078,7 @@ function U:Create()
     self.detailTitle=label(right,"",18,16,-16,384)
     self.detailSubtitle=label(right,"",11,16,-42,384)
     self.sectionButtons={}
-    for i,section in ipairs({"Spec","Gear","Professions","Loot"}) do self.sectionButtons[i]=button(right,section,92,16+(i-1)*97,-64,function() U.section=section; U.detailOffset=0; U:Render() end) end
+    for i,section in ipairs({"Spec","Gear","Professions","Loot"}) do self.sectionButtons[i]=button(right,section,92,16+(i-1)*97,-64,function() U.section=section; U.detailOffset=0; U:Render() end); navigationButton(self.sectionButtons[i]) end
     for i=1,14 do self.details[i]=row(right,384,23,16,-102-(i-1)*24) end
     self.detailCount=label(right,"",10,16,-446,384)
     self:CreateSpec(right)
@@ -1026,11 +1088,11 @@ function U:Create()
     right:EnableMouseWheel(true); right:SetScript("OnMouseWheel",function(_,d) U.detailOffset=math.max(0,U.detailOffset-d*3); U:Render() end)
     self.status=label(f,"",11,24,-670,360)
     self.notice=label(f,"",10,400,-670,656); self.notice:SetJustifyH("RIGHT")
-    f:SetScript("OnHide",function() if G.SavePreferences then G.SavePreferences() end; GameTooltip:Hide(); if U.picker then U.picker:Hide() end; if U.rarityPicker then U.rarityPicker:Hide() end; if U.settings then U.settings:Hide() end end)
+    f:SetScript("OnHide",function() if G.SavePreferences then G.SavePreferences() end; GameTooltip:Hide(); if U.picker then U.picker:Hide() end; if U.rarityPicker then U.rarityPicker:Hide() end; if U.settings then U.settings:Hide() end; if U.welcome then U.welcome:Hide() end end)
     f:SetScript("OnShow",function() U:Render() end)
     f:Hide()
 end
-function G.Toggle() U:Create(); U.frame:SetShown(not U.frame:IsShown()) end
+function G.Toggle() U:Create(); U.frame:SetShown(not U.frame:IsShown()); if U.frame:IsShown() and G.ShowWelcome and not G.db.welcomeSeen then G.ShowWelcome() end end
 function G.Launcher()
     local broker=LibStub("LibDataBroker-1.1")
     local icons=LibStub("LibDBIcon-1.0")
@@ -1053,4 +1115,4 @@ function G.Launcher()
     G.launcher=icons:GetMinimapButton("GuildLedger")
 end
 
-G.UIWidgets={label=label,button=button,panel=panel,buttonIcon=buttonIcon}
+G.UIWidgets={label=label,button=button,panel=panel,buttonIcon=buttonIcon,edit=edit}

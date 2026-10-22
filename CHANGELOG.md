@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.3
+
+- Refresh the interface with cleaner navigation, fewer borders, sharper text, compact talent summaries and clearer materials/crafter sections.
+- Reorganize Settings into General, Your character, Guild map, Officer tools, Guild management, and Help & diagnostics. Preserve existing preferences and permissions.
+- Show online members' locations beside their level and class, with location search and full text on hover.
+- Show native recipe tooltips in the crafting list; keep finished-item and material tooltips in the details panel. Preserve shift-click item links and tooltips after selection.
+- Add four-second guild announcements using WoW's raid-warning display, with local preview, optional sound, separate rank permissions and a leader-controlled on/off switch. No announcement cooldown or saved message history.
+- Let the guild leader hide the loot feed and stop loot capture/sharing. Existing history remains until normal expiry. Members need this update to honor the switch.
+- Add promotion previews for recently connected addon users, a target rank and individual confirmation for each promotion. Skip members already at that rank or higher and respect native guild permissions.
+- Add a brief first-use introduction, clearer empty states, tab-specific search/page memory, disabled-button explanations and guild-setting save feedback.
+- Improve guild information wrapping and diagnostics layout. Keep self-loot capture working through temporary roster refreshes.
+- Keep the addon standalone with bundled libraries. Preserve saved settings, Discord invites and officer configuration.
+
 ## 0.4.2
 
 - Enable guild map visibility and character location sharing by default when no preference is saved. Preserve explicit opt-outs and keep both Settings switches.

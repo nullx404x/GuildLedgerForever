@@ -2,7 +2,7 @@
 ## Title: Guild Ledger
 ## Notes: Character roster, talents, equipped gear, crafting and observed loot.
 ## Author: Guild Ledger contributors
-## Version: 0.4.2
+## Version: 0.4.3
 ## SavedVariables: GuildLedgerDB
 Libs/LibStub/LibStub.lua
 Libs/LibDeflate/LibDeflate.lua
@@ -17,7 +17,9 @@ Sync.lua
 Transport.lua
 Scan.lua
 UI.lua
+Promotions.lua
 Preferences.lua
+Settings.lua
 Locations.lua
 Locations.xml
 Boot.lua

@@ -3,6 +3,57 @@ G.PROTOCOL=3
 G.queue,G.partials,G.peers,G.outstanding={},{},{},{}
 G.peerInfo={}; G.sources={}; G.manifestJobs={}; G.completedDigests={}
 G.pendingRecords={}; G.definitionRequests={}
+-- Live announcements are never stored, relayed or included in catch-up.
+G.announcementSeen={}
+function G.AnnouncementText(text)
+ if type(text)~='string' or #text>160 or text:find('|',1,true) then return nil end
+ text=text:gsub('%c',' '):gsub('%s+',' '):match('^%s*(.-)%s*$')
+ return text~='' and text or nil
+end
+function G.ShowAnnouncement(text,sender,preview,sound)
+ local message=(preview and '[Preview] ' or '[Guild] ')..G.Plain(sender)..': '..text
+ local color={r=0.88,g=0.73,b=0.43}
+ local ok=false
+ if RaidWarningUtil and type(RaidWarningUtil.AddMessage)=='function' then
+  ok=pcall(RaidWarningUtil.AddMessage,message,color,4)
+ elseif RaidWarningFrame and type(RaidWarningFrame.AddMessage)=='function' then
+  ok=pcall(RaidWarningFrame.AddMessage,RaidWarningFrame,message,color,4)
+ elseif type(RaidNotice_AddMessage)=='function' and RaidWarningFrame then
+  ok=pcall(RaidNotice_AddMessage,RaidWarningFrame,message,color,4)
+ end
+ if ok and sound~=false and SOUNDKIT and SOUNDKIT.RAID_WARNING then G.Safe(PlaySound,SOUNDKIT.RAID_WARNING) end
+ return ok
+end
+function G.PreviewAnnouncement(text)
+ text=G.AnnouncementText(text)
+ if not G.IsAnnouncer(G.self) then return false,'Announcement permission is required.' end
+ if not text then return false,'Enter a short message using plain text only.' end
+ if not G.ShowAnnouncement(text,G.self,true,G.db.settings.announcementSound~=false) then return false,'The built-in raid warning display is unavailable.' end
+ return true,'Preview shown only to you.'
+end
+function G.SendAnnouncement(text)
+ if not G.IsAnnouncer(G.self) then return false,'Announcement permission is required.' end
+ if not G.AnnouncementsEnabled() then return false,'Guild announcements are turned off.' end
+ text=G.AnnouncementText(text)
+ if not text then return false,'Enter a short message using plain text only.' end
+ local id=G.Hash(G.self..G.now()..G.clock()..(G.sequence or 0))
+ local sound=G.db.settings.announcementSound~=false
+ if not G.Send({type='announcement',scope=G.scope,id=id,stamp=G.now(),text=text,sound=sound},nil,'GUILD',true) then
+  return false,'Could not send. Wait for guild sync and try again.'
+ end
+ G.ShowAnnouncement(text,G.self,false,sound)
+ return true,'Sent to online members using this update.'
+end
+function G.ReceiveAnnouncement(v,sender)
+ if not G.AnnouncementsEnabled() or not G.IsAnnouncer(sender) or v.sound~=nil and type(v.sound)~='boolean' or type(v.id)~='string' or not v.id:match('^%x%x%x%x%x%x%x%x$') or type(v.stamp)~='number' or v.stamp%1~=0 or v.stamp>G.now()+5 or G.now()-v.stamp>15 then return end
+ local text=G.AnnouncementText(v.text); if not text then return end
+ local now=G.clock()
+ for key,at in pairs(G.announcementSeen) do if now-at>30 then G.announcementSeen[key]=nil end end
+ local key=sender..':'..v.id
+ if G.announcementSeen[key] then return end
+ G.announcementSeen[key]=now
+ G.ShowAnnouncement(text,sender,false,v.sound)
+end
 function G.PeerCompatible(name)
  local p=G.peerInfo[name]; return not p or p.protocol==3
 end
@@ -25,7 +76,7 @@ function G.PeerStatus(name)
 end
 function G.Digest()
  if G.digestRevision~=G.dataRevision then
-  local rows={}; for _,id in ipairs(G.Keys(G.store.records)) do rows[#rows+1]=id..'='..G.Token(G.store.records[id]) end
+  local rows={}; for _,id in ipairs(G.SharedRecordKeys()) do rows[#rows+1]=id..'='..G.Token(G.store.records[id]) end
   G.digest=G.Hash(table.concat(rows,';')); G.digestRevision=G.dataRevision
  end
  return G.digest
@@ -38,7 +89,7 @@ end
 local function digestWork()
  if G.digestRevision==G.dataRevision then G.digestWork=nil; return end
  local work=G.digestWork
- if not work then work={keys=G.Keys(G.store.records),cursor=1,hash=5381,revision=G.dataRevision}; G.digestWork=work end
+ if not work then work={keys=G.SharedRecordKeys(),cursor=1,hash=5381,revision=G.dataRevision}; G.digestWork=work end
  for i=1,24 do
   local id=work.keys[work.cursor]
   if not id then
@@ -113,11 +164,12 @@ local function gearWork()
  end
 end
 local function deferredGear(id)
+ if id:sub(1,5)=='loot:' and not G.GuildLootEnabled() then return true end
  return id:sub(1,5)=='gear:' and not G.store.records[id] and not (G.gearDemand and id=='gear:'..G.gearDemand.owner)
 end
 -- Sort once per source snapshot; useful online details arrive before bulk books.
 local function priorityKeys(focus)
- local keys=G.Keys(G.store.records); local ranks={}
+ local keys=G.SharedRecordKeys(); local ranks={}
  local loot={}; for _,id in ipairs(keys) do if G.store.records[id].kind=='loot' then loot[#loot+1]=id end end
  table.sort(loot,function(a,b) local x,y=G.store.records[a],G.store.records[b]; if x.stamp~=y.stamp then return x.stamp>y.stamp end; return a<b end)
  local recent={}; for i=1,math.min(20,#loot) do recent[loot[i]]=true end
@@ -187,6 +239,7 @@ function G.Handle(v,sender)
  end
  if not G.PeerCompatible(sender) or v.protocol and v.protocol~=G.PROTOCOL then return end
  G.peers[sender]=G.now(); G.lastContact=G.now()
+ if v.type=='announcement' then G.ReceiveAnnouncement(v,sender); return end
     if v.type=="guildInvite" then
         if not G.IsGuildLeader(sender) or type(v.revision)~="number" or v.revision%1~=0 or v.revision<0 or v.revision>(G.now()+300)*1000 then return end
         local invite=G.NormalizeInvite(v.invite)
@@ -201,6 +254,21 @@ function G.Handle(v,sender)
             ranks[k]=true
         end
         G.store.officerRanks=ranks; G.Refresh(); return
+    elseif v.type=="announcementPolicy" then
+        if not G.IsGuildLeader(sender) or type(v.enabled)~="boolean" or type(v.ranks)~="table" or type(v.revision)~="number" or v.revision%1~=0 or v.revision<0 or v.revision>(G.now()+300)*1000 then return end
+        local ranks={}
+        for k,value in pairs(v.ranks) do
+            if type(k)~="number" or k%1~=0 or k<2 or k>10 or value~=true then return end
+            ranks[k]=true
+        end
+        if v.revision>(G.store.announcementRevision or -1) then
+            G.store.announcementsEnabled=v.enabled; G.store.announcementRanks=ranks; G.store.announcementRevision=v.revision; G.Refresh()
+        end
+        return
+    elseif v.type=="lootEnabled" then
+        if not G.IsGuildLeader(sender) or type(v.enabled)~="boolean" or type(v.revision)~="number" or v.revision%1~=0 or v.revision<0 or v.revision>(G.now()+300)*1000 then return end
+        if v.revision>(G.store.lootEnabledRevision or -1) then G.ApplyLootEnabled(v.enabled,v.revision) end
+        return
     elseif v.type=="lootPolicy" then
         if not G.IsOfficer(sender) or type(v.greens)~="boolean" or type(v.revision)~="number" or v.revision%1~=0 or v.revision<0 or v.revision>(G.now()+300)*1000 then return end
         if v.revision>(G.store.policyRevision or -1) or v.revision==G.store.policyRevision and not v.greens and G.store.captureGreens then
@@ -265,7 +333,7 @@ function G.Handle(v,sender)
   for _,row in ipairs(v.rows) do
    if type(row)=='table' and type(row.id)=='string' then
     local r=G.store.records[row.id]
-    if r then
+    if G.ShareRecord(r) then
      local entry=G.MakeTransfer(r,row.base)
      if entry.record then entry=G.BookTransfer(entry.record,sender,row.full==true) end
      entries[#entries+1]=entry
@@ -390,7 +458,7 @@ function G.TrackChange(r)
  G.After('changes',3,function()
   if not G.ready then G.changeBase=nil; G.changedRecords={}; G.changeOverflow=nil; G.AnnounceSoon(); return end
   local rows={}
-  for _,id in ipairs(G.Keys(G.changedRecords)) do local current=G.store.records[id]; if current then rows[#rows+1]={id=id,token=G.Token(current)} end end
+  for _,id in ipairs(G.Keys(G.changedRecords)) do local current=G.store.records[id]; if G.ShareRecord(current) then rows[#rows+1]={id=id,token=G.Token(current)} end end
   if #rows>0 then G.Send({type='changes',scope=G.scope,baseDigest=G.changeComplete and G.changeRevision==G.dataRevision and G.changeBase or nil,digest=G.NetworkDigest(),rows=rows},nil,'GUILD') end
   G.changeBase=nil; G.changedRecords={}; G.changeOverflow=nil
   G.AnnounceSoon()

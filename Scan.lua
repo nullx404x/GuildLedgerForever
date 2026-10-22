@@ -169,7 +169,14 @@ end
 G.FormatPattern=formatPattern
 G.lootSeen={}; G.pendingLoot={}
 function G.CaptureLoot(message,lineID)
-    if not G.ready then return end
+    if not G.GuildLootEnabled() then return end
+    if not G.store or not G.scope or not G.self then return end
+    -- Self-loot does not require a complete member list. During a roster
+    -- refresh, confirm the current guild identity before using its cache.
+    if not G.ready then
+        local club=G.Safe(C_Club and C_Club.GetGuildClubId)
+        if not G.Safe(IsInGuild) or not club or G.GuildScope(club)~=G.scope then return end
+    end
     local raw,quantity
     for _,name in ipairs({"LOOT_ITEM_SELF_MULTIPLE","LOOT_ITEM_SELF","LOOT_ITEM_PUSHED_SELF_MULTIPLE","LOOT_ITEM_PUSHED_SELF"}) do
         local pat=formatPattern(_G[name])
@@ -191,6 +198,7 @@ function G.CaptureLoot(message,lineID)
     G.ResolveLoot()
 end
 function G.ResolveLoot()
+    if not G.GuildLootEnabled() then G.pendingLoot={}; return end
     local pending={}
     for _,v in ipairs(G.pendingLoot) do
         if v.scope==G.scope then

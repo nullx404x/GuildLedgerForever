@@ -51,7 +51,7 @@ function G.InitStore()
     if G.db.schema~=3 then
         local old=type(G.db.guild)=='table' and G.db.guild or {}
         local clean={records={},definitions={},blocked={},lootFloor=0}
-        for _,key in ipairs({'discordInvite','inviteRevision','officerRanks','captureGreens','policyRevision'}) do clean[key]=old[key] end
+        for _,key in ipairs({'discordInvite','inviteRevision','officerRanks','captureGreens','policyRevision','lootEnabled','lootEnabledRevision','announcementsEnabled','announcementRanks','announcementRevision'}) do clean[key]=old[key] end
         G.db.guild=clean; G.db.schema=3; G.scope=nil; G.store=nil
     end
     G.db.settings=type(G.db.settings)=='table' and G.db.settings or {roles={}}
@@ -89,6 +89,7 @@ function G.SetGuildInvite(value)
     return true
 end
 function G.ResetSync()
+    G.announcementSeen={}
     G.Changed("membership"); G.Changed("roster"); G.scannedScope=nil
     if G.ResetTransport then G.ResetTransport() end
     G.recipePool={}; G.history={}; G.historyBytes=0
@@ -140,6 +141,7 @@ function G.Token(r)
 end
 function G.Accept(r, localWrite)
     if not G.store or not G.Validate(r) then return false end
+    if r.kind=="loot" and not G.GuildLootEnabled() then return false end
     if r.kind~="loot" then
         if not G.ready or not G.members[r.owner] then return false end
         if r.stamp<=math.max(G.store.blocked[r.owner] or 0,G.store.memberFloor or 0) then return false end
@@ -219,6 +221,7 @@ function G.UpdateRoster()
         if not name or roster[name] then G.RosterWait("Guild roster has unresolved or duplicate names"); return end
         local p=Enum.ClubMemberPresence
         roster[name]={name=name,guid=m.guid,class=m.classID,level=m.level or 0,rank=m.guildRank or "",rankOrder=m.guildRankOrder,online=m.presence==p.Online or m.presence==p.Away or m.presence==p.Busy}
+        roster[name].zone=roster[name].online and type(m.zone)=="string" and m.zone~="" and G.Plain(m.zone):sub(1,200) or nil
         signature[#signature+1]=name..":"..(m.guid or tostring(id))..":"..tostring(m.guildRankOrder)
     end
     if not roster[G.self] then G.RosterWait("Your character is not in the received roster: "..tostring(G.self)); return end
@@ -261,12 +264,62 @@ function G.IsOfficer(name)
     return G.ready and m and (m.rankOrder==1 or (G.store.officerRanks or {})[m.rankOrder]==true) or false
 end
 function G.GreenCaptureEnabled() return G.store and G.store.captureGreens==true end
+function G.AnnouncementsEnabled() return not G.store or G.store.announcementsEnabled~=false end
+function G.AnnouncementRanks() return G.store and (G.store.announcementRanks or G.store.officerRanks) or {} end
+function G.IsAnnouncer(name)
+    local m=G.members[name]
+    return G.ready and m and (m.rankOrder==1 or G.AnnouncementRanks()[m.rankOrder]==true) or false
+end
+function G.HasOfficerTools(name) return G.IsOfficer(name) or G.IsAnnouncer(name) or (name==G.self and G.CanBatchPromote and G.CanBatchPromote()) end
+function G.SendAnnouncementPolicy(target)
+    if not G.IsGuildLeader(G.self) or not G.store.announcementRevision then return end
+    G.Send({type="announcementPolicy",scope=G.scope,enabled=G.AnnouncementsEnabled(),ranks=G.AnnouncementRanks(),revision=G.store.announcementRevision},target,target and "WHISPER" or "GUILD",true)
+end
+function G.SetAnnouncementPolicy(enabled,ranks)
+    if not G.IsGuildLeader(G.self) or type(enabled)~="boolean" or type(ranks)~="table" then return false end
+    local clean={}
+    for k,v in pairs(ranks) do
+        if type(k)~="number" or k%1~=0 or k<2 or k>10 or v~=true then return false end
+        clean[k]=true
+    end
+    G.store.announcementsEnabled=enabled; G.store.announcementRanks=clean
+    G.store.announcementRevision=math.max(G.now()*1000,(G.store.announcementRevision or 0)+1)
+    G.SendAnnouncementPolicy(); G.Refresh(); return true
+end
+function G.GuildLootEnabled() return not G.store or G.store.lootEnabled~=false end
+function G.ShareRecord(r) return r and (r.kind~="loot" or G.GuildLootEnabled()) end
+function G.SharedRecordKeys()
+    local keys={}
+    for id,r in pairs(G.store.records) do if G.ShareRecord(r) then keys[#keys+1]=id end end
+    table.sort(keys); return keys
+end
+function G.ApplyLootEnabled(enabled,revision)
+    G.store.lootEnabled=enabled; G.store.lootEnabledRevision=revision
+    -- Cancel in-flight batches, which may contain loot alongside other records.
+    -- Discovery resumes the other records with a fresh filtered inventory.
+    G.queue={}; G.sent={}; G.partials={}; G.outstanding={}; G.pendingRecords={}
+    G.sources={}; G.manifestJobs={}; G.completedDigests={}
+    G.digestRevision=nil; G.digestWork=nil
+    G.changeBase=nil; G.changedRecords={}; G.changeOverflow=nil
+    if not enabled then G.pendingLoot={} end
+    G.Changed("loot"); G.Refresh(); G.AnnounceSoon()
+end
+function G.SetGuildLootEnabled(enabled)
+    if not G.IsGuildLeader(G.self) or type(enabled)~="boolean" then return false end
+    G.ApplyLootEnabled(enabled,math.max(G.now()*1000,(G.store.lootEnabledRevision or 0)+1))
+    G.Send({type="lootEnabled",scope=G.scope,enabled=enabled,revision=G.store.lootEnabledRevision},nil,"GUILD",true)
+    return true
+end
 function G.SendLootPolicy(target)
+    G.SendAnnouncementPolicy(target)
+    if G.IsGuildLeader(G.self) and G.store.lootEnabledRevision then
+        G.Send({type="lootEnabled",scope=G.scope,enabled=G.GuildLootEnabled(),revision=G.store.lootEnabledRevision},target,nil,true)
+    end
     if G.IsGuildLeader(G.self) then G.Send({type="officerAccess",scope=G.scope,ranks=G.store.officerRanks or {}},target) end
     if G.IsOfficer(G.self) then G.Send({type="lootPolicy",scope=G.scope,greens=G.GreenCaptureEnabled(),revision=G.store.policyRevision or 0},target) end
 end
 function G.SetGreenCapture(value)
-    if not G.IsOfficer(G.self) then return false end
+    if not G.IsOfficer(G.self) or not G.GuildLootEnabled() then return false end
     G.store.captureGreens=value==true; G.store.policyRevision=math.max(G.now()*1000,(G.store.policyRevision or 0)+1)
     for name,info in pairs(G.peerInfo) do if G.PeerCompatible(name) then G.SendLootPolicy(name) end end
     G.Refresh(); return true

@@ -19,7 +19,7 @@ Spec shows the talent-point split and a short build summary. Recognized specs su
 
 ## Crafting
 
-Each recipe appears once. Search by item or crafter, and filter by profession, rarity or online availability. Select a recipe to see its required ingredients and the guild members who can craft it. Whisper opens a chat editor; it does not send a message.
+Each recipe appears once. Search by item or crafter, and filter by profession, rarity or online availability. Hover the list for the recipe tooltip; the details panel shows the finished item. Select a recipe to see its required ingredients and the guild members who can craft it. Whisper opens a chat editor; it does not send a message.
 
 The binding filter defaults to **Hide BoP**, keeping Bind on Equip items, unbound consumables and enchant services visible. Choose **BoE only**, **BoP only**, **All bindings** or **Unknown binding** as needed. The default hides confirmed Bind on Pickup outputs; it is not a guarantee every remaining output can be traded. Uncached items remain visible until binding data loads. Your selection is saved; Clear restores Hide BoP.
 
@@ -27,7 +27,9 @@ Recipe lists update when members open their own profession windows. Ingredients 
 
 ## Guild Loot
 
-One shared feed, newest first, keeps **up to 500 loot records for seven days**. The default is Rare (blue) and above. The guild master can allow officer ranks to manage the feed in **Settings > Officer settings**; authorized officers can include Uncommon (green) and above. There are no personal loot filters.
+The guild leader can disable the feed in Officer tools. This hides loot views and stops capture and sharing for members on 0.4.3 or newer. Existing records remain until their normal expiry.
+
+One shared feed, newest first, keeps **up to 500 loot records for seven days**. The default is Rare (blue) and above. The guild master can allow officer ranks to manage the feed in **Settings > Officer tools**; authorized officers can include Uncommon (green) and above. There are no personal loot filters.
 
 Each participating member records their own qualifying self-loot messages and shares them. Quest rewards, dungeon loot and drops can appear when the client emits a supported self-loot/pushed-item message. The addon does not reconstruct past loot or infer loot from equipment. Members without the addon do not contribute their own captures. Trading does not rewrite the original recipient. Exact event delivery depends on the client and locale.
 
@@ -35,7 +37,7 @@ Guild policy is learned from online authorized members. A new installation must 
 
 ## Discord and settings
 
-The **Discord** button opens a copyable invite. The guild master uses **Edit invite** to save a Discord invite URL or clear it. New installations start without an invite. The invite is scoped to the current guild and is shared directly by the guild master with online members running compatible 0.4.0-or-newer versions. Members retain the last received invite when the guild master logs out; new members must meet the guild master online to learn it. Existing saved invites survive the update.
+The **Discord** button opens a copyable invite. The guild master uses **Settings > Guild management > Discord** to save a Discord invite URL or clear it. New installations start without an invite. The invite is scoped to the current guild and is shared directly by the guild master with online members running compatible 0.4.0-or-newer versions. Members retain the last received invite when the guild master logs out; new members must meet the guild master online to learn it. Existing saved invites survive the update.
 
 Personal Settings includes role overrides, minimap visibility and window scale. Drag the minimap button around the map and drag the main window to reposition it. Escape closes the main window. Assign an optional shortcut through WoW's Key Bindings. Items and spells use native WoW tooltips, allowing other tooltip addons to customize them. Shift-click an item to insert its link into an active chat edit box.
 
@@ -44,6 +46,12 @@ Personal Settings includes role overrides, minimap visibility and window scale. 
 **Guild map: shown** and **Share location: on** are enabled by default. In Settings, turn either off to hide guild markers or stop sharing your own character's position. Previously saved choices are preserved. The world map also has a **Guild members** checkbox for visibility.
 
 Small class-colored diamonds appear on supported zone and related continent maps. Hover for a two-line tooltip with name, level, class and known spec. Updates are sent at most once per 30-second periodic interval; disabling sharing sends a hide notice when connected. Offline members are hidden and positions expire after 90 seconds. Loading screens and instances withdraw your marker. No location history is saved, and locations are never relayed by other members. Members must run compatible 0.4.0-or-newer versions to contribute. Separate phases are not resolved; markers are approximate recent positions, not a guarantee the character is visible in your phase.
+
+## Guild announcements
+
+Open Settings â†’ Officer settings â†’ Announcements. The guild leader and ranks granted announcement access can preview a message locally or send it to online guild members using this feature. Messages use WoW's native raid-warning display for four seconds. Warning sound is on by default; the sender can switch it off for silent announcements, and Preview uses the same choice. The choice is saved for that sender. Sound respects the game's sound settings.
+
+The guild leader can turn announcements off for everyone. Officer access has separate rank selections for managing loot and sending announcements. Existing officer grants are used initially; choosing announcement access or changing loot access separates them. Sending does not require a raid group. Messages are short plain text with no announcement cooldown. Duplicates and expired messages are ignored. Announcements are not saved or replayed on login. Members need this update to honor the new settings; a new installation learns the guild policy from the guild leader when online together.
 
 ## Commands
 
