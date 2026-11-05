@@ -76,7 +76,7 @@ function G.DiscordInvite()
 end
 function G.SendGuildInvite(target)
     if not G.IsGuildLeader(G.self) or not G.store.inviteRevision then return end
-    G.Send({type="guildInvite",scope=G.scope,invite=G.DiscordInvite(),revision=G.store.inviteRevision},target)
+    G.Send({type="guildInvite",scope=G.scope,invite=G.DiscordInvite(),revision=G.store.inviteRevision},target,target and "WHISPER" or "GUILD")
 end
 function G.SetGuildInvite(value)
     if not G.IsGuildLeader(G.self) then return false,"Only the guild master can change the invite." end
@@ -84,22 +84,22 @@ function G.SetGuildInvite(value)
     if not invite then return false,"Use https://discord.gg/code or leave blank to remove it." end
     G.store.discordInvite=invite
     G.store.inviteRevision=math.max(G.now()*1000,(G.store.inviteRevision or 0)+1)
-    for name,info in pairs(G.peerInfo) do if G.PeerCompatible(name) then G.SendGuildInvite(name) end end
+    G.SendGuildInvite()
     G.Refresh()
     return true
 end
 function G.ResetSync()
     G.announcementSeen={}
-    G.Changed("membership"); G.Changed("roster"); G.scannedScope=nil
+    G.Changed("membership"); G.Changed("roster"); G.Changed("presence"); G.scannedScope=nil
     if G.ResetTransport then G.ResetTransport() end
     G.recipePool={}; G.history={}; G.historyBytes=0
     G.bookTemplates={}; G.bookTemplateBytes=0; G.bookPeers={}; G.gearDemand=nil
     G.pendingRecords={}; G.definitionRequests={}; G.sources={}; G.completedDigests={}
-    G.changedRecords={}; G.changeBase=nil; G.changeOverflow=nil
+    G.changedRecords={}; G.changeBase=nil; G.changeOverflow=nil; G.changeReplay=nil
     G.tokenCache=setmetatable({},{__mode="k"})
     if G.ClearLocations then G.ClearLocations() end
     G.queue,G.partials,G.peers,G.outstanding={}, {}, {}, {}; G.peerInfo={}
-    G.members={}; G.ready=false; G.candidate=nil; G.candidateAt=nil; G.manifestJobs={}; G.crafterIndex=nil; G.dataRevision=(G.dataRevision or 0)+1; G.skillCandidate=nil; G.recipeGeneration=(G.recipeGeneration or 0)+1; G.lastContact=nil; G.offerTimes={}; G.rates={}
+    G.members={}; G.memberNamesById={}; G.club=nil; G.ready=false; G.candidate=nil; G.candidateAt=nil; G.manifestJobs={}; G.crafterIndex=nil; G.dataRevision=(G.dataRevision or 0)+1; G.skillCandidate=nil; G.recipeGeneration=(G.recipeGeneration or 0)+1; G.lastContact=nil; G.offerTimes={}; G.rates={}
 end
 function G.Scope(scope)
     if G.scope==scope and G.db.scope==scope and (scope==nil or G.store) then return end
@@ -185,6 +185,49 @@ function G.RosterWait(reason)
         G.After("roster-retry",5,function() G.RequestRoster(); G.UpdateRoster() end)
     end
 end
+local function memberSnapshot(m)
+    if type(m)~="table" or type(m.name)~="string" or m.name=="" then return end
+    local name=G.Name(m.name)
+    if not name then return end
+    local p=Enum.ClubMemberPresence
+    local online=m.presence==p.Online or m.presence==p.Away or m.presence==p.Busy
+    return {name=name,guid=m.guid,class=m.classID,level=m.level or 0,rank=m.guildRank or "",rankOrder=m.guildRankOrder,online=online,
+        zone=online and type(m.zone)=="string" and m.zone~="" and G.Plain(m.zone):sub(1,200) or nil}
+end
+-- Return true when a single-member event was handled (or belongs to another
+-- community). Identity/authority uncertainty always takes the full gated path.
+function G.UpdateRosterMember(club,memberId,presence)
+    if club~=nil and G.club~=nil and tostring(club)~=tostring(G.club) then return true end
+    if not G.ready or G.worldLoading or club==nil or memberId==nil or not G.club then return false end
+    local current=G.Safe(C_Club and C_Club.GetGuildClubId)
+    if not current or tostring(current)~=tostring(G.club) then return false end
+    local name=G.memberNamesById and G.memberNamesById[memberId]
+    local old=name and G.members[name]
+    if not old then return false end
+    local raw=G.Safe(C_Club.GetMemberInfo,club,memberId)
+    local member=memberSnapshot(raw)
+    if not member or member.name~=name or member.guid~=old.guid or member.rankOrder~=old.rankOrder or member.rank~=old.rank then return false end
+    if raw.memberId~=nil and raw.memberId~=memberId then return false end
+    if presence~=nil then
+        local p=Enum.ClubMemberPresence
+        if presence~=p.Online and presence~=p.Away and presence~=p.Busy and presence~=p.Offline and presence~=p.Unknown and presence~=p.OnlineMobile then return false end
+        member.online=presence==p.Online or presence==p.Away or presence==p.Busy
+        if not member.online then member.zone=nil
+        elseif type(raw.zone)=="string" and raw.zone~="" then member.zone=G.Plain(raw.zone):sub(1,200) end
+    end
+    if not G.Equal(old,member) then
+        G.members[name]=member
+        G.Changed("roster")
+        if old.online~=member.online then G.Changed("presence") end
+        G.Refresh()
+    end
+    return true
+end
+function G.QueueRosterRefresh(delay)
+    G.ready=false
+    -- Do not let a burst of member events indefinitely postpone validation.
+    if not G.timers.roster then G.After("roster",delay or 0.5,G.UpdateRoster) end
+end
 function G.UpdateRoster()
     if G.worldLoading then G.ready=false; return end
     if not IsInGuild() then
@@ -213,15 +256,14 @@ function G.UpdateRoster()
     if not ids or not total or #ids~=total or #ids==0 then
         G.RosterWait("Guild roster received "..tostring(ids and #ids or 0).." / "..tostring(total or "unknown").." members"); return
     end
-    local roster,signature={},{}
+    local roster,signature,memberNamesById={},{},{}
     for _,id in ipairs(ids) do
         local m=G.Safe(C_Club.GetMemberInfo,club,id)
-        if not m or not m.name or m.name=="" then G.RosterWait("Waiting for a guild member's name"); return end
-        local name=G.Name(m.name)
-        if not name or roster[name] then G.RosterWait("Guild roster has unresolved or duplicate names"); return end
-        local p=Enum.ClubMemberPresence
-        roster[name]={name=name,guid=m.guid,class=m.classID,level=m.level or 0,rank=m.guildRank or "",rankOrder=m.guildRankOrder,online=m.presence==p.Online or m.presence==p.Away or m.presence==p.Busy}
-        roster[name].zone=roster[name].online and type(m.zone)=="string" and m.zone~="" and G.Plain(m.zone):sub(1,200) or nil
+        local member=memberSnapshot(m)
+        if not member then G.RosterWait("Waiting for a guild member's name"); return end
+        local name=member.name
+        if roster[name] then G.RosterWait("Guild roster has unresolved or duplicate names"); return end
+        roster[name]=member; memberNamesById[id]=name
         signature[#signature+1]=name..":"..(m.guid or tostring(id))..":"..tostring(m.guildRankOrder)
     end
     if not roster[G.self] then G.RosterWait("Your character is not in the received roster: "..tostring(G.self)); return end
@@ -235,18 +277,23 @@ function G.UpdateRoster()
     end
     local membershipChanged=not G.Equal(G.Keys(G.members),G.Keys(roster))
     local rosterChanged=not G.Equal(G.members,roster)
-    G.members=roster; G.ready=true; G.errors.roster=nil
+    local presenceChanged=membershipChanged
+    if not presenceChanged then for name,m in pairs(roster) do if G.members[name].online~=m.online then presenceChanged=true; break end end end
+    G.members=roster; G.memberNamesById=memberNamesById; G.ready=true; G.errors.roster=nil
     if G.timers["roster-retry"] then G.timers["roster-retry"]:Cancel(); G.timers["roster-retry"]=nil end
+    local removedKinds={}
     for id,r in pairs(G.store.records) do
         if r.kind~="loot" and not roster[r.owner] then
             G.store.blocked[r.owner]=math.max(G.store.blocked[r.owner] or 0,G.now())
-            G.store.records[id]=nil
+            G.store.records[id]=nil; removedKinds[r.kind]=true
         end
     end
     -- Compact exceptionally large removal sets into a conservative global snapshot floor.
     if G.Count(G.store.blocked)>10000 then G.store.memberFloor=G.now(); G.store.blocked={} end
     if membershipChanged then G.Changed("membership") end
     if rosterChanged then G.Changed("roster") end
+    if presenceChanged then G.Changed("presence") end
+    for kind in pairs(removedKinds) do G.Changed(kind) end
     G.motd=G.Safe(C_GuildInfo.GetMOTD) or info.broadcast or ""
     G.guildInfo=G.Safe(C_GuildInfo.GetInfoText) or info.description or ""
     if G.scannedScope~=G.scope then G.After("scan",1,function()
@@ -294,15 +341,18 @@ function G.SharedRecordKeys()
     table.sort(keys); return keys
 end
 function G.ApplyLootEnabled(enabled,revision)
+    local pending=G.PendingLocalChanges and G.PendingLocalChanges() or {}
     G.store.lootEnabled=enabled; G.store.lootEnabledRevision=revision
     -- Cancel in-flight batches, which may contain loot alongside other records.
     -- Discovery resumes the other records with a fresh filtered inventory.
     G.queue={}; G.sent={}; G.partials={}; G.outstanding={}; G.pendingRecords={}
     G.sources={}; G.manifestJobs={}; G.completedDigests={}
     G.digestRevision=nil; G.digestWork=nil
-    G.changeBase=nil; G.changedRecords={}; G.changeOverflow=nil
+    G.changeBase=nil; G.changedRecords={}; G.changeOverflow=nil; G.changeReplay=nil
     if not enabled then G.pendingLoot={} end
-    G.Changed("loot"); G.Refresh(); G.AnnounceSoon()
+    G.Changed("loot")
+    for id in pairs(pending) do local r=G.store.records[id]; if r then G.TrackChange(r,true) end end
+    G.Refresh(); G.AnnounceSoon()
 end
 function G.SetGuildLootEnabled(enabled)
     if not G.IsGuildLeader(G.self) or type(enabled)~="boolean" then return false end
@@ -310,17 +360,21 @@ function G.SetGuildLootEnabled(enabled)
     G.Send({type="lootEnabled",scope=G.scope,enabled=enabled,revision=G.store.lootEnabledRevision},nil,"GUILD",true)
     return true
 end
+function G.SendOfficerAccess(target)
+    if not G.IsGuildLeader(G.self) then return end
+    G.Send({type="officerAccess",scope=G.scope,ranks=G.store.officerRanks or {}},target,target and "WHISPER" or "GUILD")
+end
 function G.SendLootPolicy(target)
     G.SendAnnouncementPolicy(target)
     if G.IsGuildLeader(G.self) and G.store.lootEnabledRevision then
         G.Send({type="lootEnabled",scope=G.scope,enabled=G.GuildLootEnabled(),revision=G.store.lootEnabledRevision},target,nil,true)
     end
-    if G.IsGuildLeader(G.self) then G.Send({type="officerAccess",scope=G.scope,ranks=G.store.officerRanks or {}},target) end
+    G.SendOfficerAccess(target)
     if G.IsOfficer(G.self) then G.Send({type="lootPolicy",scope=G.scope,greens=G.GreenCaptureEnabled(),revision=G.store.policyRevision or 0},target) end
 end
 function G.SetGreenCapture(value)
     if not G.IsOfficer(G.self) or not G.GuildLootEnabled() then return false end
     G.store.captureGreens=value==true; G.store.policyRevision=math.max(G.now()*1000,(G.store.policyRevision or 0)+1)
-    for name,info in pairs(G.peerInfo) do if G.PeerCompatible(name) then G.SendLootPolicy(name) end end
+    G.Send({type="lootPolicy",scope=G.scope,greens=G.GreenCaptureEnabled(),revision=G.store.policyRevision},nil,"GUILD")
     G.Refresh(); return true
 end

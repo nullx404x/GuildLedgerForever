@@ -3,23 +3,54 @@ local deflate=LibStub('GuildLedgerDeflate')
 G.sequence=0
 G.performance={started=G.clock(),sentBytes=0,receivedBytes=0,sentPackets=0,receivedPackets=0,failures=0,peakTick=0,peakReceive=0,totalTick=0,totalReceive=0,ticks=0,receives=0,peakMemory=0}
 function G.ResetTransport()
+ G.ResetPeers()
  G.policyTimes={}
  G.sourceBackoff={}; G.retrySourceAt=nil
  G.sent={}; G.completed={}; G.controls={}; G.digestRevision=nil; G.digestWork=nil; G.sendBudget=nil
 end
 G.ResetTransport()
+-- Fixed fields avoid generic table/compression overhead on the guild heartbeat.
+-- The largest valid payload is 169 bytes, below a single 180-byte fragment.
+local function beaconFields(scope,version,inventory,policy,gear,busy)
+ if type(scope)~='string' or #scope<1 or #scope>64 or scope:find('[|%c]')
+  or type(version)~='string' or #version>32 or not version:match('^%d+%.%d+%.%d+$')
+  or type(inventory)~='string' or #inventory~=8 or not inventory:match('^%x+$')
+  or type(policy)~='string' or #policy>32 or type(gear)~='string' or #gear>24
+  or busy~='0' and busy~='1' then return end
+ local hash,revision=policy:match('^(%x+)/(%d+)$')
+ if not hash or #hash~=16 or #revision>15 then return end
+ if gear~='' then
+  local rev,token=gear:match('^(%d+)/(%x+)$')
+  if not rev or #rev>15 or #token~=8 then return end
+ end
+ return true
+end
 local function queuedBytes()
  local n=0; for _,q in ipairs(G.queue) do n=n+#q.data end
  for _,q in pairs(G.sent) do n=n+#q.data end
  return n
 end
 function G.WireEncode(v)
+ if v.type=='beacon' then
+  local busy=v.catchingUp and '1' or '0'
+  if beaconFields(v.scope,v.version,v.inventory,v.policy,v.gear,busy) then
+   return 'B3|'..table.concat({v.scope,v.version,v.inventory,v.policy,v.gear,busy},'|')
+  end
+  -- Unusual realms/versions still use the existing fully compatible transport.
+  v=G.Copy(v); v.type='hello'
+ end
  local s=G.Encode(v)
  local compressed=deflate:EncodeForPrint(deflate:CompressDeflate(s,{level=1}))
  return #compressed<#s and 'Z'..compressed or 'R'..s
 end
 function G.WireDecode(s)
  if #s>G.MAX_WIRE+1 then return end
+ if s:sub(1,3)=='B3|' then
+  if #s>169 then return end
+  local scope,version,inventory,policy,gear,busy=s:match('^B3|([^|]*)|([^|]*)|([^|]*)|([^|]*)|([^|]*)|([^|]*)$')
+  if not beaconFields(scope,version,inventory,policy,gear,busy) then return end
+  return {type='beacon',scope=scope,version=version,protocol=3,beacon=true,inventory=inventory,digest=inventory,policy=policy,gear=gear,catchingUp=busy=='1'}
+ end
  local raw
  if s:sub(1,1)=='R' then raw=s:sub(2)
  elseif s:sub(1,1)=='Z' then
@@ -35,10 +66,29 @@ function G.Send(value,target,channel,urgent)
  value.protocol=G.PROTOCOL
  local ok,s=pcall(G.WireEncode,value)
  if not ok or #s>G.MAX_WIRE then G.errors.sync='Record exceeds transfer limits'; return false end
+ -- Receivers retry missing recipe definitions while a busy source may still
+ -- have their first answer queued. Reuse that exact pending reply, not an
+ -- already-sent packet: after a receiver reset a fresh request needs a new ID.
+ if value.type=='definitions' and target then
+  for _,pending in ipairs(G.queue) do
+   if pending.target==target and pending.channel==(channel or 'WHISPER') and pending.data==s then return true end
+  end
+ end
  if #G.queue>=160 or queuedBytes()+#s>524288 then return false end
  G.sequence=G.sequence+1
  local q={data=s,target=target,channel=channel or 'WHISPER',part=1,total=math.ceil(#s/180),
   id=G.Hash(G.self..G.now()..G.sequence),hash=G.Hash(s),prefix=G.PREFIX}
+ if value.type=='changes' and type(value.rows)=='table' then
+  -- IDs only: a loot-policy reset can replay unsent local non-loot snapshots
+  -- without decoding queued payloads or retaining copies of record data.
+  for i=1,math.min(32,#value.rows) do
+   local row=value.rows[i]; local id=type(row)=='table' and row.id
+   local r=type(id)=='string' and G.store and G.store.records[id]
+   if r and r.owner==G.self and r.kind~='loot' then
+    q.localChanges=q.localChanges or {}; q.localChanges[#q.localChanges+1]=id
+   end
+  end
+ end
  if urgent then table.insert(G.queue,G.queue[1] and G.queue[1].part>1 and 2 or 1,q) else G.queue[#G.queue+1]=q end
  return true
 end

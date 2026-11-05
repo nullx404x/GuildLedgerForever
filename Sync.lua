@@ -3,7 +3,64 @@ G.PROTOCOL=3
 G.queue,G.partials,G.peers,G.outstanding={},{},{},{}
 G.peerInfo={}; G.sources={}; G.manifestJobs={}; G.completedDigests={}
 G.policyTimes={}
+-- One lifecycle owner; these three public maps remain read-compatible views for
+-- roster/settings callers. Introduction and inventory checks are independent.
+G.peerStates={}; G.discoveryPending={}
+local function peerState(name)
+ local state=G.peerStates[name]
+ if not state then state={name=name,detectedAt=G.clock()}; G.peerStates[name]=state end
+ state.info=G.peerInfo[name]; state.lastSeen=G.peers[name]; state.checkedDigest=G.completedDigests[name]
+ return state
+end
+local function observePeer(name,info)
+ local state=peerState(name)
+ if info then G.peerInfo[name]=info; state.info=info end
+ G.peers[name]=G.now(); state.lastSeen=G.now()
+ if state.info then G.discoveryPending[name]=nil
+ elseif not state.checkedDigest then G.discoveryPending[name]=state end
+ return state
+end
+local function checkedPeer(name,digest)
+ if not digest then return end
+ G.completedDigests[name]=digest; peerState(name).checkedDigest=digest
+ G.discoveryPending[name]=nil
+end
+function G.PeerSyncState(name)
+ if not G.peers[name] then return end
+ local state=peerState(name); local info=state.info
+ state.introduction=info and info.version and 'identified' or 'detected'
+ state.advertisedDigest=info and info.digest
+ -- Status rendering must not count/fingerprint every record once per peer.
+ local digest=G.digestRevision==G.dataRevision and G.digest or nil
+ local checked=state.checkedDigest and (not state.advertisedDigest or state.checkedDigest==state.advertisedDigest)
+  or state.advertisedDigest and state.advertisedDigest==digest
+ state.background=G.manifestJobs[name] and 'receiving' or checked and 'checked' or 'pending'
+ state.phase=info and info.protocol~=G.PROTOCOL and 'incompatible'
+  or state.background~='pending' and state.background or state.introduction
+ return state
+end
+function G.ForgetPeer(name)
+ G.peerStates[name]=nil; G.discoveryPending[name]=nil
+ G.peers[name]=nil; G.peerInfo[name]=nil; G.completedDigests[name]=nil
+ G.policyTimes[name]=nil; G.manifestJobs[name]=nil; G.sources[name]=nil
+ if G.sourceBackoff then G.sourceBackoff[name]=nil end
+ if G.offerTimes then G.offerTimes[name]=nil end
+ if G.rates then G.rates[name]=nil end
+ if G.bookPeers then G.bookPeers[name]=nil end
+ for id,hint in pairs(G.priorityChanges or {}) do if hint.sender==name then G.priorityChanges[id]=nil end end
+ for _,prefix in ipairs({'offer:','policy:','manifestReady:'}) do
+  local key=prefix..name; if G.timers[key] then G.timers[key]:Cancel(); G.timers[key]=nil end
+ end
+end
+function G.ResetPeers()
+ for name in pairs(G.peerStates) do G.ForgetPeer(name) end
+ for name in pairs(G.peers) do G.ForgetPeer(name) end
+ G.peerStates={}; G.discoveryPending={}; G.discoveryNextAt=nil; G.discoveryReplyNextAt=nil
+ G.peers={}; G.peerInfo={}; G.completedDigests={}
+ G.priorityChanges={}
+end
 G.pendingRecords={}; G.definitionRequests={}
+G.priorityChanges={}
 -- Live announcements are never stored, relayed or included in catch-up.
 G.announcementSeen={}
 function G.AnnouncementText(text)
@@ -73,7 +130,7 @@ function G.PeerStatus(name)
  if not p then return 'Version unknown' end
  if not p.protocol then return 'Update required (0.4.0+)' end
  local c=G.VersionCompare(p.version,G.VERSION)
- return not c and 'Version unknown' or c<0 and 'Older version' or c>0 and 'Newer version' or 'Up to date'
+ return not c and 'Version unknown' or c<0 and 'Older version' or c>0 and 'Newer version' or 'Current version'
 end
 function G.Digest()
  if G.digestRevision~=G.dataRevision then
@@ -131,8 +188,18 @@ end
 function G.Hello(kind,target)
  local catchingUp=false; for _,job in pairs(G.manifestJobs) do if not job.incremental and G.clock()-(job.progress or 0)<45 then catchingUp=true; break end end
  local gear=G.store and G.store.records['gear:'..G.self]
- return {type=kind or 'hello',scope=G.scope,target=target,version=G.VERSION,protocol=G.PROTOCOL,digest=G.LegacyNetworkDigest(),inventory=G.NetworkDigest(),gear=gear and G.Token(gear) or '',
+ return {type=kind or 'hello',scope=G.scope,target=target,version=G.VERSION,protocol=G.PROTOCOL,beacon=true,digest=G.LegacyNetworkDigest(),inventory=G.NetworkDigest(),gear=gear and G.Token(gear) or '',
   policy=G.PolicyDigest()..'/'..tostring(G.store and G.store.policyRevision or 0),catchingUp=catchingUp}
+end
+local function discoveryKind()
+ -- A single compatible broadcast serves every older peer. Never send a copy to
+ -- every member, and return to compact discovery when legacy peers leave.
+ for name,seen in pairs(G.peers) do
+  local info=G.peerInfo[name]
+  if G.members[name] and G.members[name].online~=false and G.now()-seen<600
+   and G.PeerCompatible(name) and (not info or not info.beacon) then return 'hello' end
+ end
+ return 'beacon'
 end
 local function recoverPolicy(target)
  if not G.IsOfficer(G.self) then return end
@@ -165,7 +232,7 @@ function G.AnnounceSoon()
  G.After('announce',math.max(3,60-(G.clock()-(G.lastHello or -60))),function()
   if G.ready then
    if not G.NetworkDigest() then G.AnnounceSoon(); return end
-   G.lastHello=G.clock(); G.Send(G.Hello(),nil,'GUILD')
+   G.lastHello=G.clock(); G.Send(G.Hello(discoveryKind()),nil,'GUILD')
   end
  end)
 end
@@ -190,7 +257,7 @@ function G.Manifest(target)
  if active>=2 then return end
  local info=G.peerInfo[target]
  if info and info.catchingUp then return end
- if info and info.digest and (G.completedDigests[target]==info.digest or G.NetworkDigest()==info.digest) then G.completedDigests[target]=info.digest; return end
+ if info and info.digest and (G.completedDigests[target]==info.digest or G.NetworkDigest()==info.digest) then checkedPeer(target,info.digest); return end
  G.manifestJobs[target]={cursor=1,at=-100,digest=info and info.digest,scope=G.scope,progress=G.clock(),session=G.Hash(G.self..target..G.clock()),pages={},pageRequests={},finished=0,focus=G.SyncFocus(),focusAt=G.clock()}
 end
 local function retrySource(target)
@@ -198,6 +265,33 @@ local function retrySource(target)
  G.sourceBackoff[target]=G.clock()+60+(tonumber(G.Hash(G.self..target),16)%30)
  G.manifestJobs[target]=nil
  G.retrySourceAt=G.clock()+2+(tonumber(G.Hash(target..G.self),16)%50)/10
+end
+-- Roster refreshes can discard a guild heartbeat while reliable whispers still
+-- work. Bootstrap only peers we have actually heard, without polling the roster.
+local function discoveryWork()
+ if not next(G.discoveryPending) then return end
+ local now=G.clock()
+ if now<(G.discoveryNextAt or 0) or #G.queue>=8 or G.Count(G.outstanding)>=24 or not G.NetworkDigest() then return end
+ G.discoveryNextAt=now+5
+ local candidate,oldest
+ for target,state in pairs(G.discoveryPending) do
+  if not G.members[target] or not G.peers[target] or G.peerInfo[target] or G.completedDigests[target] then G.discoveryPending[target]=nil
+  elseif G.members[target].online~=false then
+   local attempt=state.lastAttempt or -60
+   if now-state.detectedAt>=3 and now-attempt>=60 and now>=(G.sourceBackoff[target] or 0)
+    and (not candidate or attempt<oldest or attempt==oldest and target<candidate) then
+    candidate,oldest=target,attempt
+   end
+  end
+ end
+ if candidate then
+  local hello=G.Hello('hello',candidate); hello.requestHello=true
+  if G.Send(hello,candidate) then
+   peerState(candidate).lastAttempt=now
+   -- Older clients understand this catch-up even without the optional reply.
+   G.Manifest(candidate)
+  end
+ end
 end
 function G.SyncFocus()
  local ui=G.UI
@@ -272,6 +366,9 @@ local function receiveRecord(p,sender)
  if r then
   if G.Validate(r) then
    if G.Accept(r) then G.AnnounceSoon() end
+   local hint=G.priorityChanges[r.id]; local current=G.store.records[r.id]
+   if hint and current and (current.rev>hint.rev or G.Token(current)==hint.token
+    or r.rev==hint.rev and G.Token(r)==hint.token) then G.priorityChanges[r.id]=nil end
    if r.kind=='gear' and G.gearDemand and G.gearDemand.owner==r.owner then G.gearDemand.done=true; G.Refresh() end
    local job=G.manifestJobs[sender]
    if job then job.progress=G.clock(); job.resolved=job.resolved or {}; job.resolved[p.id]=G.Token(r) end
@@ -294,8 +391,41 @@ local function sendBatches(kind,field,values,target,urgent)
  end
  send()
 end
+local function rememberChange(row,sender)
+ local id=row.id; local profession='profession:'..sender..':'
+ local current=G.store.records[id]
+ local professionID=id:sub(1,#profession)==profession and tonumber(id:sub(#profession+1):match('^%d+$'))
+ local own=id=='profile:'..sender or professionID and professionID<=1e7
+  or id=='gear:'..sender and (current or G.gearDemand and G.gearDemand.owner==sender)
+ if not own then return end
+ local rev=tonumber(row.token:match('^(%d+)/'))
+ if not rev or rev>1e14 then return end
+ if current and (current.rev>rev or G.Token(current)==row.token) then return end
+ local old=G.priorityChanges[id]
+ if old and old.rev>=rev then return end
+ if not old and G.Count(G.priorityChanges)>=64 then return end
+ G.priorityChanges[id]={sender=sender,token=row.token,rev=rev,at=G.clock(),scope=G.scope}
+end
+local function priorityWork()
+ if not next(G.priorityChanges) then return end
+ local target; local rows={}; local now=G.clock()
+ local space=math.min(8,24-G.Count(G.outstanding))
+ for id,hint in pairs(G.priorityChanges) do
+  local current=G.store.records[id]; local member=G.members[hint.sender]
+  if hint.scope~=G.scope or not member or member.online==false or now-hint.at>180
+   or current and (current.rev>hint.rev or G.Token(current)==hint.token) then G.priorityChanges[id]=nil
+  elseif #G.queue<8 and space>0 and not G.outstanding[id] and G.PeerCompatible(hint.sender)
+   and (not target or target==hint.sender) then
+   target=hint.sender; rows[#rows+1]={id=id,base=current and G.Token(current)}; space=space-1
+  end
+ end
+ if target and G.Send({type='request',scope=G.scope,rows=rows},target,nil,true) then
+  for _,row in ipairs(rows) do G.outstanding[row.id]={at=now,sender=target} end
+ end
+end
 function G.Handle(v,sender)
  if type(v)~='table' or v.scope~=G.scope or not G.members[sender] then return end
+ if v.type=='beacon' then v.type='hello' end
  if v.type=='hello' or v.type=='offer' then
   if type(v.protocol)~='number' or v.protocol%1~=0 or v.protocol<1 or v.protocol>10000 then return end
   local version=type(v.version)=='string' and #v.version<=32 and v.version:match('^%d+%.%d+%.%d+$') and v.version or nil
@@ -305,14 +435,18 @@ function G.Handle(v,sender)
    if hash and #hash==16 and rev and rev<=(G.now()+300)*1000 then policy,policyRevision=hash,rev end
   end
   local inventory=type(v.inventory)=='string' and #v.inventory==8 and v.inventory or nil
-  G.peerInfo[sender]={version=version,protocol=v.protocol==G.PROTOCOL and G.PROTOCOL or nil,catchingUp=v.catchingUp==true,
+  local previous=G.peerInfo[sender]
+  local info={version=version,protocol=v.protocol==G.PROTOCOL and G.PROTOCOL or nil,catchingUp=v.catchingUp==true,beacon=v.beacon==true,
    digest=inventory or type(v.digest)=='string' and #v.digest==8 and v.digest or nil,inventory=inventory,
    policy=policy,policyRevision=policyRevision}
-  G.peers[sender]=G.now()
+  observePeer(sender,info)
+  -- An older client cannot decode the compact beacon. Its first introduction
+  -- schedules one compatible guild broadcast, even if inventories already match.
+  if not info.beacon and info.protocol==G.PROTOCOL and (not previous or previous.beacon) then G.AnnounceSoon() end
   if not G.PeerCompatible(sender) then G.manifestJobs[sender]=nil; G.Refresh(); return end
  end
  if not G.PeerCompatible(sender) or v.protocol and v.protocol~=G.PROTOCOL then return end
- G.peers[sender]=G.now(); G.lastContact=G.now()
+ local state=observePeer(sender); G.lastContact=G.now()
  if v.type=='announcement' then G.ReceiveAnnouncement(v,sender); return end
     if v.type=="guildInvite" then
         if not G.IsGuildLeader(sender) or type(v.revision)~="number" or v.revision%1~=0 or v.revision<0 or v.revision>(G.now()+300)*1000 then return end
@@ -354,6 +488,12 @@ function G.Handle(v,sender)
  if v.type=='hello' then
   G.Manifest(sender)
   recoverPolicy(sender)
+  if v.requestHello==true and v.target==G.self and G.clock()>=(G.discoveryReplyNextAt or 0)
+   and G.clock()-(state.lastReply or -60)>=60 and #G.queue<8 then
+   if G.Send(G.Hello('offer',sender),sender) then
+    state.lastReply=G.clock(); G.discoveryReplyNextAt=G.clock()+5
+   end
+  end
   -- Gear is fetched on demand, but an already viewed character stays fresh even
   -- if its change notice was missed. Other members' gear is never pulled here.
   local id='gear:'..sender; local old=G.store.records[id]
@@ -370,12 +510,12 @@ function G.Handle(v,sender)
   G.After(key,1+(tonumber(G.Hash(sender..G.self..math.floor(G.now()/60)),16)%900)/100,function()
    if not G.ready or not G.members[sender] then return end
    G.Send(G.Hello('offer',sender),nil,'GUILD'); G.Manifest(sender)
-   G.SendGuildInvite(sender); G.SendLootPolicy(sender)
+   recoverPolicy(sender)
   end)
  elseif v.type=='offer' and type(v.target)=='string' then
   local key='offer:'..v.target
   if G.timers[key] then G.timers[key]:Cancel(); G.timers[key]=nil end
-  if v.target==G.self then G.Manifest(sender); G.SendGuildInvite(sender); G.SendLootPolicy(sender) end
+  if v.target==G.self then G.Manifest(sender); recoverPolicy(sender) end
  elseif v.type=='changes' and type(v.rows)=='table' and #v.rows<=32 then
   for _,row in ipairs(v.rows) do
    if type(row)~='table' or type(row.id)~='string' or #row.id>180 or type(row.token)~='string' or #row.token>50 or not row.token:match('^%d+/%x%x%x%x%x%x%x%x$') then return end
@@ -384,12 +524,14 @@ function G.Handle(v,sender)
   local base=inventory and v.baseInventory or v.baseDigest
   local digest=inventory or v.digest
   local matched=type(base)=='string' and G.completedDigests[sender]==base
-  -- Small self-loot records ride the existing change notice once for the guild.
+  -- Small self-owned profile/loot records ride one existing guild notice. Apply
+  -- them before source-slot checks, so an active catch-up cannot hide a change.
   -- Older clients ignore this optional field and use their normal request path.
   for _,row in ipairs(v.rows) do
    local r=row.record
-   if type(r)=='table' and r.kind=='loot' and r.owner==sender and r.id==row.id
+   if type(r)=='table' and (r.kind=='loot' or r.kind=='profile') and r.owner==sender and r.id==row.id
     and G.Validate(r) and G.Token(r)==row.token then G.Accept(r) end
+   rememberChange(row,sender)
   end
   if G.manifestJobs[sender] or G.Count(G.manifestJobs)>=4 then return end
   G.manifestJobs[sender]={rows=v.rows,done=true,scope=G.scope,progress=G.clock(),at=G.clock(),cursor=0,incremental=true,
@@ -448,6 +590,7 @@ function G.Handle(v,sender)
   if peer and G.bookTemplates[v.key] and G.Count(peer.known)<128 then peer.known[v.key]=true end
  elseif v.type=='absent' and type(v.id)=='string' then
   if G.outstanding[v.id] and G.outstanding[v.id].sender==sender then
+   if G.priorityChanges[v.id] and G.priorityChanges[v.id].sender==sender then G.priorityChanges[v.id]=nil end
    local job=G.manifestJobs[sender]
    if job and job.rows then for _,row in ipairs(job.rows) do if row.id==v.id then row.absent=true end end end
    finish(v.id)
@@ -488,7 +631,7 @@ function G.SyncWork()
  for target,job in pairs(G.manifestJobs) do
   if not job.incremental and G.clock()-(job.progress or 0)>90 then retrySource(target) end
  end
- for name,t in pairs(G.peers) do if not G.members[name] or G.now()-t>600 then G.peers[name]=nil; G.peerInfo[name]=nil; G.completedDigests[name]=nil; G.policyTimes[name]=nil; if G.offerTimes then G.offerTimes[name]=nil end; if G.rates then G.rates[name]=nil end end end
+ for name,t in pairs(G.peers) do if not G.members[name] or G.now()-t>600 then G.ForgetPeer(name) end end
  for name,s in pairs(G.sources) do if G.clock()-s.at>300 or not G.members[name] then G.sources[name]=nil end end
  for id,h in pairs(G.history) do if G.clock()-h.at>600 then G.historyBytes=G.historyBytes-h.size; G.history[id]=nil end end
  for id,t in pairs(G.outstanding) do if G.clock()-t.at>(G.pendingRecords[id] and 300 or 60) then finish(id) end end
@@ -496,6 +639,8 @@ function G.SyncWork()
  if not G.ready then return end
  G.PruneBookTemplates(); gearWork()
  digestWork()
+ discoveryWork()
+ priorityWork()
  if G.retrySourceAt and G.clock()>=G.retrySourceAt then
   G.retrySourceAt=G.clock()+5
   local candidates=G.Keys(G.peerInfo)
@@ -528,6 +673,14 @@ function G.SyncWork()
   end
  end
  for target,job in pairs(G.manifestJobs) do
+  if not job.incremental and G.digestRevision==G.dataRevision then
+   local info=G.peerInfo[target]
+   local digest=info and not info.inventory and G.legacyDigest or G.digest
+   local advertised=info and info.digest or job.digest
+   local matched=advertised==digest and advertised
+   if matched then checkedPeer(target,matched); G.manifestJobs[target]=nil; job=nil; G.Refresh() end
+  end
+  if job then
   if not G.members[target] or not G.PeerCompatible(target) or job.scope~=G.scope then G.manifestJobs[target]=nil
   elseif #G.queue<8 then
    if not job.incremental then
@@ -560,17 +713,32 @@ function G.SyncWork()
      for _,row in ipairs(requests) do G.outstanding[row.id]={at=G.clock(),sender=target} end
     end
     if not waiting then
-     if job.done then if job.digest then G.completedDigests[target]=job.digest end; G.manifestJobs[target]=nil; G.Refresh()
+     if job.done then checkedPeer(target,job.digest); G.manifestJobs[target]=nil; G.Refresh()
      else job.finished=(job.finished or 0)+#job.rows; job.pages[job.cursor]=nil; job.cursor=job.nextCursor; job.rows=nil; job.resolved=nil; job.at=-100 end
     end
    end
+  end
   end
  end
 end
 
 -- Only locally changed snapshots are announced. Relays do not amplify broadcasts.
 G.changedRecords={}
-function G.TrackChange(r)
+function G.PendingLocalChanges()
+ local pending,count={},0
+ local function keep(id)
+  local r=G.store and G.store.records[id]
+  if count<32 and not pending[id] and r and r.owner==G.self and r.kind~='loot' then pending[id]=true; count=count+1 end
+ end
+ local profile='profile:'..G.self
+ if G.changedRecords[profile] then keep(profile) end
+ for _,q in ipairs(G.queue) do for _,id in ipairs(q.localChanges or {}) do if id==profile then keep(id) end end end
+ for id in pairs(G.changedRecords) do keep(id) end
+ for _,q in ipairs(G.queue) do for _,id in ipairs(q.localChanges or {}) do keep(id) end end
+ return pending
+end
+function G.TrackChange(r,replay)
+ if replay then G.changeReplay=true end
  if not G.changeBase then G.changeBase=G.NetworkDigest(); G.changeLegacyBase=G.LegacyNetworkDigest(); G.changeComplete=true
  elseif G.changeRevision~=G.dataRevision then G.changeComplete=false end
  G.changeRevision=(G.dataRevision or 0)+1
@@ -580,13 +748,17 @@ function G.TrackChange(r)
  end
  if G.timers.changes then return end
  G.After('changes',3,function()
-  if not G.ready then G.changeBase=nil; G.changedRecords={}; G.changeOverflow=nil; G.AnnounceSoon(); return end
+  if not G.ready then G.changeBase=nil; G.changedRecords={}; G.changeOverflow=nil; G.changeReplay=nil; G.AnnounceSoon(); return end
   local rows={}; local inlineBytes=0
-  for _,id in ipairs(G.Keys(G.changedRecords)) do
+  local ids=G.Keys(G.changedRecords)
+  -- Reserve the shared inline budget for the profile before a burst of loot.
+  local profile='profile:'..G.self
+  for i,id in ipairs(ids) do if id==profile then table.remove(ids,i); table.insert(ids,1,id); break end end
+  for _,id in ipairs(ids) do
    local current=G.store.records[id]
    if G.ShareRecord(current) then
     local row={id=id,token=G.Token(current)}
-    if current.kind=='loot' and current.owner==G.self then
+    if (current.kind=='loot' or current.kind=='profile') and current.owner==G.self then
      local size=#G.Encode(current)
      if inlineBytes+size<=2048 then row.record=current; inlineBytes=inlineBytes+size end
     end
@@ -594,11 +766,11 @@ function G.TrackChange(r)
    end
   end
   if #rows>0 then
-   local complete=G.changeComplete and G.changeRevision==G.dataRevision
+   local complete=not G.changeReplay and G.changeComplete and G.changeRevision==G.dataRevision
    G.Send({type='changes',scope=G.scope,baseDigest=complete and G.changeLegacyBase or nil,digest=G.LegacyNetworkDigest(),
     baseInventory=complete and G.changeBase or nil,inventory=G.NetworkDigest(),rows=rows},nil,'GUILD')
   end
-  G.changeBase=nil; G.changeLegacyBase=nil; G.changedRecords={}; G.changeOverflow=nil
+  G.changeBase=nil; G.changeLegacyBase=nil; G.changedRecords={}; G.changeOverflow=nil; G.changeReplay=nil
   G.AnnounceSoon()
  end)
 end

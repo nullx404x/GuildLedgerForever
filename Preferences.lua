@@ -48,16 +48,37 @@ end
 function G.FriendlySyncStatus()
     if not G.scope then return "Join a guild to begin" end
     if not G.ready then return "Loading guild members…" end
-    if next(G.manifestJobs or {}) or next(G.partials or {}) or next(G.outstanding or {}) then return "Receiving guild data…" end
+    if next(G.manifestJobs or {}) or next(G.partials or {}) or next(G.outstanding or {}) or next(G.priorityChanges or {}) then return "Receiving guild data…" end
     if next(G.peers or {})==nil then return "No addon users connected" end
-    return "Up to date with connected members"
+    local detected,pending,unknown,incompatible=false,false,false,false
+    for name in pairs(G.peers) do
+        local state=G.PeerSyncState(name)
+        if state then
+            if state.phase=="receiving" then return "Receiving guild data…" end
+            if state.phase=="incompatible" then incompatible=true
+            else
+                unknown=unknown or state.introduction~="identified"
+                if state.background~="checked" then
+                    if state.introduction=="identified" then pending=true else detected=true end
+                end
+            end
+        end
+    end
+    if detected then return "Discovering guild members…" end
+    if pending then return "Checking guild data…" end
+    if incompatible then return "Some members need an update" end
+    if unknown then return "Guild data checked · version pending" end
+    return "Guild data checked"
 end
 function G.DiagnosticsText()
     local version,build,_,interface=GetBuildInfo()
     local lines={"Guild Ledger "..G.VERSION,"Client: "..tostring(version).." / "..tostring(build).." / interface "..tostring(interface),"Protocol: "..G.PROTOCOL,"Roster ready: "..tostring(G.ready),"Records: "..G.Count(G.store and G.store.records),"Queued transfers: "..#G.queue,"Partial transfers: "..G.Count(G.partials),"Awaiting acknowledgment: "..G.Count(G.sent),"Catch-up sources: "..G.Count(G.manifestJobs),"Shared recipe definitions: "..G.Count(G.recipePool),G.PeerSummary(),"", "Peers (includes character names):"}
+    table.insert(lines,7,"Pending character updates: "..G.Count(G.priorityChanges))
     for _,name in ipairs(G.Keys(G.peers)) do
         local info=G.peerInfo[name]
+        local state=G.PeerSyncState(name)
         lines[#lines+1]=G.Plain(name)..": "..(info and info.version or "unknown").." - "..G.PeerStatus(name)
+        lines[#lines+1]="  Introduction: "..(state and state.introduction=="identified" and "received" or "not received").."; profile: "..(G.Get("profile",name) and "received" or "not received").."; background check: "..(state and state.background or "pending")
     end
     lines[#lines+1]=""; lines[#lines+1]="Diagnostics:"
     for _,key in ipairs(G.Keys(G.errors)) do lines[#lines+1]=G.Plain(key)..": "..G.Plain(G.errors[key]):sub(1,500) end
@@ -266,7 +287,7 @@ function G.BuildOfficerSettings(host)
                 G.store.officerRanks=G.store.officerRanks or {}
                 G.store.officerRanks[rank]=not G.store.officerRanks[rank] or nil
                 G.SettingsSaved()
-                for name,info in pairs(G.peerInfo) do if G.PeerCompatible(name) then G.SendLootPolicy(name) end end
+                G.SendOfficerAccess()
                 f.refresh()
             end)
             f.ranks[i]=b; G.SettingsQuietButton(b,false); b:SetHeight(34)

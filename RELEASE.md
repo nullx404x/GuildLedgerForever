@@ -14,7 +14,7 @@ Status: the push webhook and tagged-only mode are configured. Verified on 2026-1
 
 1. Copy only audited release source into the repository root. Exclude settings, private guild data and backups.
 2. Update Core.lua VERSION, both TOC Version fields and CHANGELOG.md to the same release number. Versions stay explicit so local installs also report correctly.
-3. Run regression and release checks in the development workspace. Inspect the public diff for private data and bundled library notices.
+3. Run `python tests/preflight.py` in the development workspace after final source/version/changelog edits. Require a passing result for the exact source being published, including actual Boot event/timer and busy-guild fault tests. The local packager enforces this gate; do not bypass it by pushing a tag directly. Inspect the public diff for private data and bundled library notices. Keep test reports, fixtures and personal game data out of the public package.
 4. Push the approved source commit, then create and push a new version tag (for example v0.4.1). Do not move or reuse an existing release tag.
 5. Check CurseForge packaging output, file version/game compatibility, release type, changelog, and the extracted GuildLedger/GuildLedger.toc layout before announcing availability.
 6. Create the GitHub Release for that same tag and attach the independently verified installable ZIP and SHA256 sidecar. Check the published page and asset hashes.

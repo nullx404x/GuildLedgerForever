@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.5
+
+- Recover member profiles and professions when a guild-wide introduction is missed, using bounded direct discovery and the existing background catch-up limits.
+- Show a waiting state while a member's introduction is missing, and include introduction/profile/background-check state in copied diagnostics.
+- Keep ordinary online-status and location changes from interrupting transfers or restarting shared-data comparisons. Validate membership and rank changes before accepting further data.
+- Update individual roster members and preserve unrelated crafting/loot list caches. Spread routine maintenance across time and use slower safety scans alongside immediate character-change events.
+- Use compact introductions between updated clients, with automatic support for older 0.4.x peers. Track member detection, identification, active transfers and completed checks separately.
+- Include small personal talent/profession updates in the existing change notification, so active catch-up does not delay them or make every member request a separate copy. Preserve pending character updates when the guild loot feed is switched off or on.
+- Keep a bounded queue of direct character and recipe updates during busy catch-up. Stop redundant catalog transfers when the local data already matches the other member.
+- Broadcast changed Discord, loot-quality and officer-access settings once to the guild, while retaining targeted recovery for members that missed them.
+- Reuse identical recipe-definition replies that are still waiting to send, so repeated requests cannot fill a busy crafter's outgoing queue with duplicate answers.
+- Check whether guild settings differ before resending them during member-data catch-up, using the same recovery limits as normal discovery.
+- Require source-matched release checks, including real login/roster/timer simulations, busy-guild activity, loading screens, interrupted messages and older peers before packaging or tagging a release.
+
 ## 0.4.4
 
 - Verify compatibility with WoW Forever's live 1.60.1 client (build 70790, Interface 16001) and update installation guidance for the live client folder.

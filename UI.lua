@@ -422,7 +422,10 @@ function U:LootMatches(r)
 end
 function U:BuildList()
     local revision=self.tab=="Roster" and G.Revision("profile") or self.tab=="Crafting" and G.Revision("profession") or G.Revision("loot")
-    local cacheKey=table.concat({self.tab,self.query,tostring(self.online),self.role,self.class,self.spec,tostring(self.craftOwner),tostring(self.craftSkill),tostring(self.craftQuality),tostring(revision),tostring(G.Revision("roster")),tostring(G.Revision("membership")),self.tab=="Roster" and "" or tostring(G.itemRevision),tostring(G.GreenCaptureEnabled()),self.tab=="Guild Loot" and tostring(math.floor(G.now()/60)) or ""},";")
+    -- Crafting shows online crafter counts, but neither crafting nor loot depends
+    -- on member locations, levels or ranks. Keep those list caches during travel.
+    local rosterRevision=self.tab=="Roster" and G.Revision("roster") or self.tab=="Crafting" and G.Revision("presence") or 0
+    local cacheKey=table.concat({self.tab,self.query,tostring(self.online),self.role,self.class,self.spec,tostring(self.craftOwner),tostring(self.craftSkill),tostring(self.craftQuality),tostring(revision),tostring(rosterRevision),tostring(G.Revision("membership")),self.tab=="Roster" and "" or tostring(G.itemRevision),tostring(G.GreenCaptureEnabled()),self.tab=="Guild Loot" and tostring(math.floor(G.now()/60)) or ""},";")
     cacheKey=cacheKey..";"..tostring(self.craftBinding)
     if self.listKey==cacheKey then return self.listCache end
     local result={}

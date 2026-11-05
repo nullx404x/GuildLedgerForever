@@ -1,5 +1,5 @@
 local _, G = ...
-G.VERSION = "0.4.4"
+G.VERSION = "0.4.5"
 G.PREFIX = "GLDG3"
 G.MAX_WIRE = 122880
 G.now = function() return GetServerTime() end
@@ -20,8 +20,11 @@ function G.After(key, delay, fn)
     end)
 end
 function G.Refresh() if G.UIRefresh then G.UIRefresh() end end
+local networkKinds={profile=true,gear=true,profession=true,loot=true,membership=true}
 function G.Changed(kind)
-    G.dataRevision=(G.dataRevision or 0)+1
+    -- Network inventories contain shared records, not presence, zones or UI state.
+    -- Membership still changes which records are eligible to be shared.
+    if networkKinds[kind] then G.dataRevision=(G.dataRevision or 0)+1 end
     G.revisions=G.revisions or {}
     G.revisions[kind]=(G.revisions[kind] or 0)+1
 end

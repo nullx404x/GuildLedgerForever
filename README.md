@@ -9,7 +9,7 @@ A standalone guild roster, crafting directory and shared loot feed for **WoW For
 3. Enable Guild Ledger, log in, and type `/gl` or click the minimap book.
 4. Open each of your profession windows once to share learned recipes.
 
-For an update, replace the existing **GuildLedger addon folder**. Version 0.4.4 preserves your current settings, Discord invite, officer permissions and cached guild data. Keep your `WTF` folder and SavedVariables. If you are moving from the old beta client, install the addon in the live `_forever_` folder; beta and live are separate installations. No personal configuration or beta guild data is bundled with the download.
+For an update, replace the existing **GuildLedger addon folder**. Version 0.4.5 preserves your current settings, Discord invite, officer permissions and cached guild data. Keep your `WTF` folder and SavedVariables. If you are moving from the old beta client, install the addon in the live `_forever_` folder; beta and live are separate installations. No personal configuration or beta guild data is bundled with the download.
 
 All required libraries are included; no separate addon, service, account or desktop companion is needed. Very old development caches from before 0.4.0 are cleared once while their settings are retained. Back up SavedVariables before downgrading.
 
@@ -76,7 +76,9 @@ Large guilds can take several minutes or longer to fill an empty cache. The open
 
 Recipe definitions are shared across members; books hold compact keys both in memory and on disk. Transfers reuse shared recipe-list templates and send each member's differences, with recovery if a template is missing. Small changes are announced directly, with periodic discovery as a recovery path. Small loot updates are sent once to the guild; older compatible clients can still request the record normally. Busy catch-up sources are given time to recover while another peer is tried. Catch-up prefers one source and allows a second after a stall. Matching recent snapshots use change-only updates; otherwise the sender supplies a full snapshot. A book is limited to 600 recipes, with a guild catalog cap of 12,000 definitions and a 120 KiB decoded message limit; an oversized or failed scan preserves the previous snapshot and reports a diagnostic. Recipe alternatives and optional materials are not inferred. When the client supplies no loot-message ID, identical messages within two seconds are conservatively deduplicated.
 
-Diagnostics reports local sync traffic, send refusals, and average/peak processing times where supported. Addon memory is sampled when you open diagnostics; its displayed peak is the largest of those samples, not a continuous memory monitor. No performance data is broadcast.
+Updated members use smaller discovery messages. Ordinary online-status and zone changes refresh the roster without restarting data checks. New talent and profession updates receive priority during catch-up, and repeated recipe requests reuse replies that are still waiting to send. Officer-setting changes are broadcast once, with targeted recovery when someone misses them.
+
+Sync status distinguishes finding a member, learning their version, receiving their records and completing a data check. Knowing a member's version does not mean all their data has arrived. Diagnostics includes these states alongside local sync traffic, send refusals, and average/peak processing times where supported. Addon memory is sampled when you open diagnostics; its displayed peak is the largest of those samples, not a continuous memory monitor. No performance data is broadcast.
 
 ## Troubleshooting and bug reports
 
