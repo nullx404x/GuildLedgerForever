@@ -69,7 +69,9 @@ end
 function G.ScanSkills()
     if not GetProfessions or not GetProfessionInfo then G.errors.professions="Profession list API unavailable"; return end
     local ids={GetProfessions()}; local list={}
-    for i=1,6 do
+    -- The live Camelot profession sidebar reads two primary and five secondary slots.
+    -- Use explicit positions because unlearned professions leave nil holes.
+    for i=1,7 do
         local index=ids[i]
         if index then
             local name,_,rank,max,_,_,id=G.Safe(GetProfessionInfo,index)

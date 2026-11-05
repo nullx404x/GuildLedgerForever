@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.4
+
+- Verify compatibility with WoW Forever's live 1.60.1 client (build 70790, Interface 16001) and update installation guidance for the live client folder.
+- Reduce background sync replies when members already have matching data. Share small loot updates in one guild broadcast instead of each member requesting them separately.
+- Keep differing gear caches from triggering whole-guild comparisons. Fetch gear on demand and recover missed updates from online owners, while preserving the existing sync path for older 0.4.x clients.
+- Improve catch-up when many addon users log in together: wait for local comparisons, back off from busy sources and retry stalled requests while keeping transfer limits.
+- Recover missed Discord, officer-permission, announcement and loot-setting updates even when members already have matching character data. Coordinate policy replies so settled members stay quiet.
+- Check all seven profession slots supported by the live client, including gaps in the profession list.
+- Preserve current settings and cached guild data, remain compatible with 0.4.x peers, and keep all required libraries bundled.
+
 ## 0.4.3
 
 - Refresh the interface with cleaner navigation, fewer borders, sharper text, compact talent summaries and clearer materials/crafter sections.

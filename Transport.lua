@@ -3,6 +3,8 @@ local deflate=LibStub('GuildLedgerDeflate')
 G.sequence=0
 G.performance={started=G.clock(),sentBytes=0,receivedBytes=0,sentPackets=0,receivedPackets=0,failures=0,peakTick=0,peakReceive=0,totalTick=0,totalReceive=0,ticks=0,receives=0,peakMemory=0}
 function G.ResetTransport()
+ G.policyTimes={}
+ G.sourceBackoff={}; G.retrySourceAt=nil
  G.sent={}; G.completed={}; G.controls={}; G.digestRevision=nil; G.digestWork=nil; G.sendBudget=nil
 end
 G.ResetTransport()

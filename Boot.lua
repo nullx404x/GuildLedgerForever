@@ -23,7 +23,7 @@ function G.Diagnostics()
     local memory=G.Safe(C_AddOns and C_AddOns.GetAddOnMemoryUsage or GetAddOnMemoryUsage,"GuildLedger")
     if memory then G.Say(string.format("Memory: %.2f MB (includes data waiting for garbage collection).",memory/1024)) end
     local version,build,_,interface=GetBuildInfo()
-    G.Say("Client "..tostring(version).." build "..tostring(build).." interface "..tostring(interface).."; target 1.60.1.70450 / 16001.")
+    G.Say("Client "..tostring(version).." build "..tostring(build).." interface "..tostring(interface).."; target Forever 1.60.1 / 16001 (live build checked: 70790).")
     G.Say((G.ready and "Complete roster confirmed" or "Waiting for complete roster").."; records "..G.Count(G.store and G.store.records).."; peers "..G.Count(G.peers).."; queued "..#G.queue..".")
     for key,value in pairs(G.errors) do G.Say(key..": "..value) end
 end

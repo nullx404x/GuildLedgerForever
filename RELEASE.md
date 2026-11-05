@@ -17,6 +17,7 @@ Status: the push webhook and tagged-only mode are configured. Verified on 2026-1
 3. Run regression and release checks in the development workspace. Inspect the public diff for private data and bundled library notices.
 4. Push the approved source commit, then create and push a new version tag (for example v0.4.1). Do not move or reuse an existing release tag.
 5. Check CurseForge packaging output, file version/game compatibility, release type, changelog, and the extracted GuildLedger/GuildLedger.toc layout before announcing availability.
+6. Create the GitHub Release for that same tag and attach the independently verified installable ZIP and SHA256 sidecar. Check the published page and asset hashes.
 
 Tags containing alpha or beta select those release types; use a plain version tag for a full release. A GitHub Release page alone does not replace pushing a version tag. This setup builds on CurseForge; it does not upload an asset to GitHub Releases.
 
