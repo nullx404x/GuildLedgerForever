@@ -23,7 +23,7 @@ function G.Diagnostics()
     local memory=G.Safe(C_AddOns and C_AddOns.GetAddOnMemoryUsage or GetAddOnMemoryUsage,"GuildLedger")
     if memory then G.Say(string.format("Memory: %.2f MB (includes data waiting for garbage collection).",memory/1024)) end
     local version,build,_,interface=GetBuildInfo()
-    G.Say("Client "..tostring(version).." build "..tostring(build).." interface "..tostring(interface).."; target Forever 1.60.1 / 16001 (live build checked: 70790).")
+    G.Say("Client "..tostring(version).." build "..tostring(build).." interface "..tostring(interface).."; target Forever 1.60.1 / 16001 (live build checked: 70888).")
     G.Say((G.ready and "Complete roster confirmed" or "Waiting for complete roster").."; records "..G.Count(G.store and G.store.records).."; peers "..G.Count(G.peers).."; queued "..#G.queue..".")
     for key,value in pairs(G.errors) do G.Say(key..": "..value) end
 end
@@ -47,12 +47,26 @@ function G.StartMaintenance()
     schedule("gear",560,600,function() if G.ready then G.ScanGear() end end)
     schedule("skills",580,600,function() if G.ready then G.ScanSkills() end end)
 end
+function G.RegisterCommunicationPrefixes()
+    G.registeredPrefixes=G.registeredPrefixes or {}
+    local codes=Enum.RegisterAddonMessagePrefixResult or {}
+    for _,prefix in ipairs({G.PREFIX,G.LOCATION_PREFIX}) do
+        local result=G.Safe(C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix,prefix)
+        local accepted=result==(codes.Success or 0) or result==(codes.DuplicatePrefix or 1)
+        if accepted and C_ChatInfo and C_ChatInfo.IsAddonMessagePrefixRegistered then
+            accepted=G.Safe(C_ChatInfo.IsAddonMessagePrefixRegistered,prefix)==true
+        end
+        G.registeredPrefixes[prefix]=accepted
+        local key=prefix==G.PREFIX and 'syncPrefix' or 'locationPrefix'
+        if accepted then G.errors[key]=nil; G.nativePrefixFailures[prefix]=nil
+        else G.errors[key]='Addon message prefix could not be registered: '..prefix end
+    end
+end
 local function login()
     G.InitStore(); G.Launcher(); G.InstallTooltips(); G.RegisterSettings()
-    G.Safe(C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix,G.LOCATION_PREFIX)
+    G.RegisterCommunicationPrefixes(); G.InstallTrafficAccounting(); G.TransportEnteringWorld()
     C_Timer.NewTicker(1,function() guard("locations",G.LocationTick) end)
-    if not C_ChatInfo or not G.Safe(C_ChatInfo.RegisterAddonMessagePrefix,G.PREFIX) then G.errors.sync="Addon message prefix could not be registered" end
-    for _,name in ipairs({"PLAYER_GUILD_UPDATE","GUILD_ROSTER_UPDATE","CLUB_MEMBERS_UPDATED","CLUB_MEMBER_ADDED","CLUB_MEMBER_REMOVED","CLUB_MEMBER_UPDATED","CLUB_MEMBER_PRESENCE_UPDATED","CLUB_MEMBER_ROLE_UPDATED","PLAYER_EQUIPMENT_CHANGED","PLAYER_LEAVING_WORLD","PLAYER_ENTERING_WORLD","TRAIT_CONFIG_UPDATED","ACTIVE_PLAYER_SPECIALIZATION_CHANGED","PLAYER_SPECIALIZATION_CHANGED","SKILL_LINES_CHANGED","TRADE_SKILL_SHOW","TRADE_SKILL_DATA_SOURCE_CHANGED","TRADE_SKILL_LIST_UPDATE","TRADE_SKILL_CLOSE","CHAT_MSG_ADDON","CHAT_MSG_LOOT","GET_ITEM_INFO_RECEIVED","UI_SCALE_CHANGED","DISPLAY_SIZE_CHANGED","PLAYER_LOGOUT"}) do register(name) end
+    for _,name in ipairs({"PLAYER_GUILD_UPDATE","GUILD_ROSTER_UPDATE","CLUB_MEMBERS_UPDATED","CLUB_MEMBER_ADDED","CLUB_MEMBER_REMOVED","CLUB_MEMBER_UPDATED","CLUB_MEMBER_PRESENCE_UPDATED","CLUB_MEMBER_ROLE_UPDATED","PLAYER_EQUIPMENT_CHANGED","PLAYER_LEAVING_WORLD","PLAYER_ENTERING_WORLD","TRAIT_CONFIG_UPDATED","ACTIVE_PLAYER_SPECIALIZATION_CHANGED","PLAYER_SPECIALIZATION_CHANGED","SKILL_LINES_CHANGED","TRADE_SKILL_SHOW","TRADE_SKILL_DATA_SOURCE_CHANGED","TRADE_SKILL_LIST_UPDATE","TRADE_SKILL_CLOSE","CHAT_MSG_ADDON","CHAT_MSG_SYSTEM","CHAT_MSG_LOOT","GET_ITEM_INFO_RECEIVED","UI_SCALE_CHANGED","DISPLAY_SIZE_CHANGED","PLAYER_LOGOUT"}) do register(name) end
     G.RequestRoster()
     G.After("roster",1,G.UpdateRoster)
     C_Timer.NewTicker(0.2,function() guard("sync",G.SyncTick) end)
@@ -76,6 +90,7 @@ local function dispatch(_,event,...)
     elseif event=="PLAYER_LOGIN" then login()
     elseif event=="CHAT_MSG_ADDON" then
         if ...==G.LOCATION_PREFIX then G.ReceiveLocation(...) else G.Receive(...) end
+    elseif event=="CHAT_MSG_SYSTEM" then G.HandleTransportSystemMessage(...)
     elseif event=="CHAT_MSG_LOOT" then local message=...; local lineID=select(11,...); G.CaptureLoot(message,lineID)
     elseif event=="PLAYER_LOGOUT" then G.SavePreferences(); G.PrepareSave()
     elseif event=="CLUB_MEMBER_UPDATED" or event=="CLUB_MEMBER_PRESENCE_UPDATED" then
@@ -87,7 +102,7 @@ local function dispatch(_,event,...)
     elseif event=="PLAYER_EQUIPMENT_CHANGED" then G.After("gear",0.8,G.ScanGear)
     elseif event=="TRAIT_CONFIG_UPDATED" or event=="ACTIVE_PLAYER_SPECIALIZATION_CHANGED" or event=="PLAYER_SPECIALIZATION_CHANGED" then G.After("talents",1,G.ScanTalents)
     elseif event=="PLAYER_LEAVING_WORLD" then G.BroadcastLocation(true); G.worldLoading=true; G.ready=false; G.guildAbsentSince=nil
-    elseif event=="PLAYER_ENTERING_WORLD" then G.worldLoading=false; G.guildAbsentSince=nil; G.scannedScope=nil; G.QueueRosterRefresh(2)
+    elseif event=="PLAYER_ENTERING_WORLD" then G.TransportEnteringWorld(); G.worldLoading=false; G.guildAbsentSince=nil; G.scannedScope=nil; G.QueueRosterRefresh(2)
     elseif event=="SKILL_LINES_CHANGED" then G.After("skills",1,G.ScanSkills)
     elseif event=="TRADE_SKILL_CLOSE" then G.recipeGeneration=(G.recipeGeneration or 0)+1
     elseif event:match("^TRADE_SKILL_") then G.After("recipes",0.8,G.ScanRecipes)

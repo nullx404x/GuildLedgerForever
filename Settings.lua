@@ -175,7 +175,7 @@ function G.OpenSettingsPage(page)
             map.show:SetSelected(G.db.settings.showGuildLocations==true); map.share:SetSelected(G.db.settings.shareLocation==true)
             management.save:SetEnabled(leader,"Only the guild master can save the guild invite.")
             if not management.dirty then management.invite:SetText(G.DiscordInvite()) end
-            help.sync:SetText(not G.ready and "Waiting for the guild roster…" or G.SyncProgress and G.SyncProgress() or G.PeerSummary())
+            help.sync:SetText(not G.ready and "Waiting for the guild roster…" or G.GuildLootPolicyKnown and not G.GuildLootPolicyKnown() and "Loot sharing is paused until the guild leader's setting arrives." or G.SyncProgress and G.SyncProgress() or G.PeerSummary())
             f.footer:SetText(f.savedUntil and G.clock()<f.savedUntil and "Guild settings saved." or (G.guildName or "Guild Ledger").." · Personal preferences save automatically")
             f.refreshing=false
         end
@@ -206,7 +206,7 @@ function G.ShowWelcome(force)
         W.label(f,"Welcome to Guild Ledger",20,24,-22,462):SetTextColor(0.88,0.73,0.43)
         local body=W.label(f,"Find guild crafters, browse shared gear and talents, and follow guild loot. Members need Guild Ledger to share their data.",13,24,-64,462)
         body:SetWordWrap(true); body:SetHeight(64)
-        local sharing=W.label(f,"Your character, known recipes and eligible loot are shared with the guild. Location sharing can be turned off in Guild map settings. Open your professions to share recipes.",13,24,-138,462)
+        local sharing=W.label(f,"Your character and known recipes are shared with the guild. Loot sharing follows the guild leader's setting. Turn location sharing off in Guild map settings. Open your professions to share recipes.",13,24,-138,462)
         sharing:SetWordWrap(true); sharing:SetHeight(78)
         W.button(f,"Your role",140,24,-235,function() f:Hide(); G.OpenSettingsPage("character") end)
         W.button(f,"Guild map",140,184,-235,function() f:Hide(); G.OpenSettingsPage("map") end)

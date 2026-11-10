@@ -14,9 +14,15 @@ local function fields(v, allowed)
 end
 local function link(v) return str(v,600) and (v:match("^item:%d+[%d:%-]*$") or v:match("^spell:%d+$")) end
 G.ValidLink=link
-function G.Validate(r)
+function G.ValidRevision(value)
+    return num(value,math.min(1e14,(G.now()+300)*1000+999))
+end
+local function nextRevision(previous)
+    return math.max(G.now()*1000,(G.ValidRevision(previous) and previous or 0)+1)
+end
+function G.Validate(r,allowMissingDefinitions)
     if not fields(r,{id=1,owner=1,kind=1,rev=1,stamp=1,data=1,deleted=1}) or not str(r.id,180) or not str(r.owner,100)
-        or not num(r.rev,1e14) or not num(r.stamp,G.now()+300) or type(r.deleted)~="boolean" then return false end
+        or r.owner=="" or not G.ValidRevision(r.rev) or not num(r.stamp,G.now()+300) or type(r.deleted)~="boolean" then return false end
     if r.kind~="profile" and r.kind~="gear" and r.kind~="profession" and r.kind~="loot" then return false end
     if r.kind=="profession" then
         if not r.id:match("^profession:"..r.owner:gsub("([^%w])","%%%1")..":%d+$") then return false end
@@ -39,11 +45,14 @@ function G.Validate(r)
     elseif r.kind=="profession" then
         return fields(d,{id=1,name=1,rank=1,max=1,recipes=1}) and num(d.id,1e7) and r.id=="profession:"..r.owner..":"..d.id
             and str(d.name,100) and num(d.rank,10000) and num(d.max,10000)
-            and array(d.recipes,600,function(x) if type(x)=="string" then return G.recipePool[x]~=nil end; return fields(x,{id=1,name=1,link=1,materials=1}) and num(x.id,1e8) and str(x.name,180) and link(x.link)
+            and array(d.recipes,600,function(x) if type(x)=="string" then return #x==16 and x:match("^%x+$") and (allowMissingDefinitions or G.recipePool[x]~=nil) end; return fields(x,{id=1,name=1,link=1,materials=1}) and num(x.id,1e8) and str(x.name,180) and link(x.link)
                 and array(x.materials,20,function(m) return fields(m,{id=1,quantity=1}) and num(m.id,1e8) and num(m.quantity,10000) end) end)
     end
     return fields(d,{link=1,quantity=1,source=1,quality=1}) and link(d.link) and d.link:match("^item:") and num(d.quantity,10000) and d.quantity>0 and str(d.source,100) and num(d.quality,5) and d.quality>=2
 end
+-- Validate metadata and payload before allocating recovery work. Recipe keys
+-- may be well formed even when their definitions have not arrived yet.
+function G.ValidRecordEnvelope(r) return G.Validate(r,true) end
 function G.InitStore()
     GuildLedgerDB = type(GuildLedgerDB)=="table" and GuildLedgerDB or {}
     G.db=GuildLedgerDB
@@ -51,7 +60,7 @@ function G.InitStore()
     if G.db.schema~=3 then
         local old=type(G.db.guild)=='table' and G.db.guild or {}
         local clean={records={},definitions={},blocked={},lootFloor=0}
-        for _,key in ipairs({'discordInvite','inviteRevision','officerRanks','captureGreens','policyRevision','lootEnabled','lootEnabledRevision','announcementsEnabled','announcementRanks','announcementRevision'}) do clean[key]=old[key] end
+        for _,key in ipairs({'discordInvite','inviteRevision','officerRanks','officerRevision','captureGreens','policyRevision','lootEnabled','lootEnabledRevision','announcementsEnabled','announcementRanks','announcementRevision'}) do clean[key]=old[key] end
         G.db.guild=clean; G.db.schema=3; G.scope=nil; G.store=nil
     end
     G.db.settings=type(G.db.settings)=='table' and G.db.settings or {roles={}}
@@ -83,7 +92,7 @@ function G.SetGuildInvite(value)
     local invite=G.NormalizeInvite(value)
     if not invite then return false,"Use https://discord.gg/code or leave blank to remove it." end
     G.store.discordInvite=invite
-    G.store.inviteRevision=math.max(G.now()*1000,(G.store.inviteRevision or 0)+1)
+    G.store.inviteRevision=nextRevision(G.store.inviteRevision)
     G.SendGuildInvite()
     G.Refresh()
     return true
@@ -118,17 +127,16 @@ function G.Prune()
     if not G.store then return end
     -- One history cap and cutoff for all qualifying loot.
     local floor=math.max(G.store.lootFloor or 0,G.now()-7*86400)
-    local loot={}; local removed=false
+    local loot={}
     for id,r in pairs(G.store.records) do if r.kind=="loot" then
-        if r.stamp<=floor then G.store.records[id]=nil; removed=true else loot[#loot+1]=r end
+        if r.stamp<=floor then G.store.records[id]=nil; G.Changed("loot",id) else loot[#loot+1]=r end
     end end
     table.sort(loot,function(a,b) if a.stamp==b.stamp then return a.id<b.id end return a.stamp>b.stamp end)
     if #loot>500 then floor=math.max(floor,loot[501].stamp) end
     G.store.lootFloor=floor
     for id,r in pairs(G.store.records) do
-        if (r.kind=="loot") and r.stamp<=floor then G.store.records[id]=nil; removed=true end
+        if (r.kind=="loot") and r.stamp<=floor then G.store.records[id]=nil; G.Changed("loot",id) end
     end
-    if removed then G.Changed("loot") end
 end
 -- Accepted records are immutable snapshots. Weak keys release replaced records.
 G.tokenCache=setmetatable({},{__mode="k"})
@@ -139,21 +147,24 @@ function G.Token(r)
     G.tokenCache[r]={rev=r.rev,token=token}
     return token
 end
-function G.Accept(r, localWrite)
+function G.Accept(r, localWrite, remoteSender)
     if not G.store or not G.Validate(r) then return false end
+    -- This client is authoritative for its own current character snapshots.
+    -- Relayed copies can repair other members' caches, never our local scans.
+    if remoteSender and r.owner==G.self and r.kind~="loot" then return false end
     if r.kind=="loot" and not G.GuildLootEnabled() then return false end
     if r.kind~="loot" then
         if not G.ready or not G.members[r.owner] then return false end
         if r.stamp<=math.max(G.store.blocked[r.owner] or 0,G.store.memberFloor or 0) then return false end
     elseif r.stamp<=math.max(G.store.lootFloor or 0,G.now()-7*86400) then return false end
     local old=G.store.records[r.id]
-    if old and (old.rev>r.rev or (old.rev==r.rev and G.Encode(G.PackRecord(old))>=G.Encode(G.PackRecord(r)))) then return false end
+    if old and G.ValidRevision(old.rev) and (old.rev>r.rev or (old.rev==r.rev and G.Encode(G.PackRecord(old))>=G.Encode(G.PackRecord(r)))) then return false end
     if not old and G.Count(G.store.records)>=12000 then G.errors.storage="Record capacity reached; new records deferred"; return false end
     if not G.InternRecord(r) then return false end
     G.RememberBase(old)
     if localWrite and G.TrackChange then G.TrackChange(r) end
     G.store.records[r.id]=r
-    G.Changed(r.kind)
+    G.Changed(r.kind,r.id)
     if r.kind=="loot" then G.Prune() end
     G.Refresh()
     return true
@@ -163,8 +174,13 @@ function G.Publish(kind, data, suffix, deleted)
     local id=kind..":"..G.self..(suffix and ":"..suffix or "")
     local old=G.store.records[id]
     local ignore=kind=="profile" and {talentStamp=true,skillStamp=true} or nil
-    if old and old.deleted==(deleted or false) and G.now()-old.stamp<900 and G.SameSnapshotData(kind,old.data,data,ignore) then return end
-    local rev=math.max(G.now()*1000,(old and old.rev or 0)+1)
+    local validOld=old and G.ValidRevision(old.rev)
+    -- Safety scans confirm the same snapshot without creating a new network
+    -- revision. Age alone must not restart every guild member's catch-up.
+    local persistentSnapshot=kind=="profile" or kind=="gear" or kind=="profession"
+    if validOld and old.deleted==(deleted or false) and (persistentSnapshot or G.now()-old.stamp<900)
+        and G.SameSnapshotData(kind,old.data,data,ignore) then return end
+    local rev=math.max(G.now()*1000,(validOld and old.rev or 0)+1)
     local r={id=id,kind=kind,owner=G.self,rev=rev,stamp=G.now(),data=data,deleted=deleted or false}
     if G.Accept(r,true) then G.AnnounceSoon() end
 end
@@ -217,6 +233,7 @@ function G.UpdateRosterMember(club,memberId,presence)
     end
     if not G.Equal(old,member) then
         G.members[name]=member
+        if old.online~=member.online and G.PeerPresence then G.PeerPresence(name,member.online,old.online) end
         G.Changed("roster")
         if old.online~=member.online then G.Changed("presence") end
         G.Refresh()
@@ -279,13 +296,22 @@ function G.UpdateRoster()
     local rosterChanged=not G.Equal(G.members,roster)
     local presenceChanged=membershipChanged
     if not presenceChanged then for name,m in pairs(roster) do if G.members[name].online~=m.online then presenceChanged=true; break end end end
+    local previousMembers=G.members
     G.members=roster; G.memberNamesById=memberNamesById; G.ready=true; G.errors.roster=nil
+    if G.PeerPresence then
+        for name,member in pairs(roster) do
+            local previous=previousMembers[name]
+            if not previous or previous.online~=member.online then G.PeerPresence(name,member.online,previous and previous.online) end
+        end
+    end
+    if membershipChanged and G.ForgetPeer then
+        for name in pairs(previousMembers) do if not roster[name] then G.ForgetPeer(name) end end
+    end
     if G.timers["roster-retry"] then G.timers["roster-retry"]:Cancel(); G.timers["roster-retry"]=nil end
-    local removedKinds={}
     for id,r in pairs(G.store.records) do
         if r.kind~="loot" and not roster[r.owner] then
             G.store.blocked[r.owner]=math.max(G.store.blocked[r.owner] or 0,G.now())
-            G.store.records[id]=nil; removedKinds[r.kind]=true
+            G.store.records[id]=nil; G.Changed(r.kind,id)
         end
     end
     -- Compact exceptionally large removal sets into a conservative global snapshot floor.
@@ -293,7 +319,7 @@ function G.UpdateRoster()
     if membershipChanged then G.Changed("membership") end
     if rosterChanged then G.Changed("roster") end
     if presenceChanged then G.Changed("presence") end
-    for kind in pairs(removedKinds) do G.Changed(kind) end
+    G.EnsureGuildPolicy()
     G.motd=G.Safe(C_GuildInfo.GetMOTD) or info.broadcast or ""
     G.guildInfo=G.Safe(C_GuildInfo.GetInfoText) or info.description or ""
     if G.scannedScope~=G.scope then G.After("scan",1,function()
@@ -330,10 +356,25 @@ function G.SetAnnouncementPolicy(enabled,ranks)
         clean[k]=true
     end
     G.store.announcementsEnabled=enabled; G.store.announcementRanks=clean
-    G.store.announcementRevision=math.max(G.now()*1000,(G.store.announcementRevision or 0)+1)
+    G.store.announcementRevision=nextRevision(G.store.announcementRevision)
     G.SendAnnouncementPolicy(); G.Refresh(); return true
 end
-function G.GuildLootEnabled() return not G.store or G.store.lootEnabled~=false end
+function G.GuildLootPolicyKnown()
+    return G.store and (type(G.store.lootEnabled)=="boolean" or
+        (G.ValidRevision(G.store.lootEnabledRevision) and G.store.lootEnabledRevision>0)) or false
+end
+function G.GuildLootEnabled() return G.GuildLootPolicyKnown() and G.store.lootEnabled~=false end
+function G.EnsureGuildPolicy()
+    if not G.IsGuildLeader(G.self) then return end
+    -- Only a verified guild master may establish the default for a new guild.
+    -- Existing saved choices and officer grants survive this initialization.
+    if not G.ValidRevision(G.store.lootEnabledRevision) or G.store.lootEnabledRevision==0 then
+        G.store.lootEnabled=G.store.lootEnabled~=false
+        G.store.lootEnabledRevision=G.now()*1000
+        G.Changed("loot")
+    end
+    if not G.ValidRevision(G.store.officerRevision) or G.store.officerRevision==0 then G.store.officerRevision=G.now()*1000 end
+end
 function G.ShareRecord(r) return r and (r.kind~="loot" or G.GuildLootEnabled()) end
 function G.SharedRecordKeys()
     local keys={}
@@ -356,25 +397,38 @@ function G.ApplyLootEnabled(enabled,revision)
 end
 function G.SetGuildLootEnabled(enabled)
     if not G.IsGuildLeader(G.self) or type(enabled)~="boolean" then return false end
-    G.ApplyLootEnabled(enabled,math.max(G.now()*1000,(G.store.lootEnabledRevision or 0)+1))
+    G.ApplyLootEnabled(enabled,nextRevision(G.store.lootEnabledRevision))
     G.Send({type="lootEnabled",scope=G.scope,enabled=enabled,revision=G.store.lootEnabledRevision},nil,"GUILD",true)
     return true
 end
 function G.SendOfficerAccess(target)
     if not G.IsGuildLeader(G.self) then return end
-    G.Send({type="officerAccess",scope=G.scope,ranks=G.store.officerRanks or {}},target,target and "WHISPER" or "GUILD")
+    G.EnsureGuildPolicy()
+    G.Send({type="officerAccess",scope=G.scope,ranks=G.store.officerRanks or {},revision=G.store.officerRevision},target,target and "WHISPER" or "GUILD")
+end
+function G.SetOfficerAccess(ranks)
+    if not G.IsGuildLeader(G.self) or type(ranks)~="table" then return false end
+    local clean={}
+    for k,v in pairs(ranks) do
+        if not num(k,10) or k<2 or v~=true then return false end
+        clean[k]=true
+    end
+    G.store.officerRanks=clean
+    G.store.officerRevision=nextRevision(G.store.officerRevision)
+    G.SendOfficerAccess(); G.Refresh(); return true
 end
 function G.SendLootPolicy(target)
+    G.EnsureGuildPolicy()
     G.SendAnnouncementPolicy(target)
     if G.IsGuildLeader(G.self) and G.store.lootEnabledRevision then
-        G.Send({type="lootEnabled",scope=G.scope,enabled=G.GuildLootEnabled(),revision=G.store.lootEnabledRevision},target,nil,true)
+        G.Send({type="lootEnabled",scope=G.scope,enabled=G.GuildLootEnabled(),revision=G.store.lootEnabledRevision},target,target and "WHISPER" or "GUILD",true)
     end
     G.SendOfficerAccess(target)
-    if G.IsOfficer(G.self) then G.Send({type="lootPolicy",scope=G.scope,greens=G.GreenCaptureEnabled(),revision=G.store.policyRevision or 0},target) end
+    if G.IsOfficer(G.self) then G.Send({type="lootPolicy",scope=G.scope,greens=G.GreenCaptureEnabled(),revision=G.store.policyRevision or 0},target,target and "WHISPER" or "GUILD") end
 end
 function G.SetGreenCapture(value)
     if not G.IsOfficer(G.self) or not G.GuildLootEnabled() then return false end
-    G.store.captureGreens=value==true; G.store.policyRevision=math.max(G.now()*1000,(G.store.policyRevision or 0)+1)
+    G.store.captureGreens=value==true; G.store.policyRevision=nextRevision(G.store.policyRevision)
     G.Send({type="lootPolicy",scope=G.scope,greens=G.GreenCaptureEnabled(),revision=G.store.policyRevision},nil,"GUILD")
     G.Refresh(); return true
 end

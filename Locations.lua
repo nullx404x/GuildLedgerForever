@@ -6,7 +6,7 @@ local function integer(n,max)
     return type(n)=="number" and n==n and n>=0 and n<=max and n%1==0
 end
 function G.ClearLocations()
-    G.locations={}; G.locationSent=nil; G.locationLastSend=nil
+    G.locations={}; G.locationSent=nil; G.locationLastSend=nil; G.locationPending=nil
     if G.RefreshMapPins then G.RefreshMapPins() end
 end
 function G.ReceiveLocation(prefix,message,channel,sender)
@@ -17,6 +17,9 @@ function G.ReceiveLocation(prefix,message,channel,sender)
     if type(v)~="table" or v.scope~=G.scope or not integer(v.stamp,G.now()+5) or G.now()-v.stamp>=TTL then return end
     if type(v.hidden)~="boolean" then return end
     if not v.hidden and (not integer(v.map,1e7) or v.map==0 or not integer(v.x,10000) or not integer(v.y,10000)) then return end
+    G.performance.receivedBytes=G.performance.receivedBytes+#message+#prefix
+    G.performance.receivedPackets=G.performance.receivedPackets+1
+    G.performance.locationReceivedPackets=(G.performance.locationReceivedPackets or 0)+1
     local old=G.locations[sender]
     -- A hide wins ties; a delayed packet must not resurrect a hidden location.
     if old and (v.stamp<old.stamp or v.stamp==old.stamp and (old.hidden or not v.hidden)) then return end
@@ -29,7 +32,7 @@ function G.ReceiveLocation(prefix,message,channel,sender)
     if changed then G.RefreshMapPins(sender) end
 end
 function G.BroadcastLocation(forceHide)
-    if not G.ready or not G.scope then return end
+    if not G.scope or not G.ready and not forceHide and G.db.settings.shareLocation==true then return end
     local hidden=forceHide or G.db.settings.shareLocation~=true or G.worldLoading or G.Safe(IsInInstance)==true
     local map,x,y
     if not hidden then
@@ -38,16 +41,14 @@ function G.BroadcastLocation(forceHide)
         if pos then x,y=G.Safe(pos.GetXY,pos) end
         if not integer(map,1e7) or not x or not y or x~=x or y~=y or x<0 or x>1 or y<0 or y>1 then hidden=true end
     end
-    if hidden and not G.locationSent then return end
-    -- Single bounded packet, independent of the recipe-transfer queue.
-    -- Never queue coordinates: disabling sharing cannot leave an outgoing backlog.
+    if hidden and not G.locationSent and not G.locationPending then return end
+    -- One replaceable packet shares transport pacing. A withdrawal supersedes
+    -- pending coordinates and remains eligible until the native client accepts it.
     local v={scope=G.scope,stamp=G.now(),hidden=hidden==true}
     if not hidden then v.map=map; v.x=math.floor(x*10000+0.5); v.y=math.floor(y*10000+0.5) end
     local message=G.Encode(v)
     if #message>255 then return end
-    local result=G.Safe(C_ChatInfo and C_ChatInfo.SendAddonMessage,G.LOCATION_PREFIX,message,"GUILD")
-    if result==true or result==0 then G.locationSent=not hidden end
-    G.locationLastSend=G.clock()
+    G.QueueLocation(message,hidden)
 end
 function G.SetLocationSharing(enabled)
     G.db.settings.shareLocation=enabled==true
@@ -270,6 +271,7 @@ function G.LocationTick()
         end
     end
     G.InstallMapOverlay()
+    G.FlushLocation()
     if not G.locationLastSend or G.clock()-G.locationLastSend>=30 then G.BroadcastLocation() end
     local roster=G.Revision("roster")
     if roster~=G.locationRosterRevision then

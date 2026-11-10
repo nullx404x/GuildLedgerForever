@@ -48,7 +48,8 @@ end
 function G.FriendlySyncStatus()
     if not G.scope then return "Join a guild to begin" end
     if not G.ready then return "Loading guild members…" end
-    if next(G.manifestJobs or {}) or next(G.partials or {}) or next(G.outstanding or {}) or next(G.priorityChanges or {}) then return "Receiving guild data…" end
+    if G.GuildLootPolicyKnown and not G.GuildLootPolicyKnown() then return "Loot sharing paused · waiting for guild settings" end
+    if next(G.manifestJobs or {}) or next(G.partials or {}) or next(G.outstanding or {}) or next(G.priorityChanges or {}) or next(G.replyRequests or {}) then return "Receiving guild data…" end
     if next(G.peers or {})==nil then return "No addon users connected" end
     local detected,pending,unknown,incompatible=false,false,false,false
     for name in pairs(G.peers) do
@@ -74,6 +75,8 @@ function G.DiagnosticsText()
     local version,build,_,interface=GetBuildInfo()
     local lines={"Guild Ledger "..G.VERSION,"Client: "..tostring(version).." / "..tostring(build).." / interface "..tostring(interface),"Protocol: "..G.PROTOCOL,"Roster ready: "..tostring(G.ready),"Records: "..G.Count(G.store and G.store.records),"Queued transfers: "..#G.queue,"Partial transfers: "..G.Count(G.partials),"Awaiting acknowledgment: "..G.Count(G.sent),"Catch-up sources: "..G.Count(G.manifestJobs),"Shared recipe definitions: "..G.Count(G.recipePool),G.PeerSummary(),"", "Peers (includes character names):"}
     table.insert(lines,7,"Pending character updates: "..G.Count(G.priorityChanges))
+    table.insert(lines,8,"Guild loot policy: "..(G.GuildLootPolicyKnown and not G.GuildLootPolicyKnown() and "unknown (sharing paused)" or G.GuildLootEnabled() and "enabled" or "disabled"))
+    table.insert(lines,9,"Pending replies / guild settings: "..G.Count(G.replyRequests).." / "..G.Count(G.policyRepairs))
     for _,name in ipairs(G.Keys(G.peers)) do
         local info=G.peerInfo[name]
         local state=G.PeerSyncState(name)
@@ -85,8 +88,9 @@ function G.DiagnosticsText()
     local p=G.performance
     if p then
         lines[#lines+1]=""; lines[#lines+1]="Performance since reload (local only):"
-        lines[#lines+1]=string.format("Sync traffic: %.1f KiB sent / %.1f KiB received; %d / %d packets",p.sentBytes/1024,p.receivedBytes/1024,p.sentPackets,p.receivedPackets)
+        lines[#lines+1]=string.format("Addon traffic (sync + map): %.1f KiB sent / %.1f KiB received; %d / %d packets",p.sentBytes/1024,p.receivedBytes/1024,p.sentPackets,p.receivedPackets)
         lines[#lines+1]=string.format("Send refusals: %d; average outgoing: %.1f bytes/sec",p.failures,p.sentBytes/math.max(1,G.clock()-p.started))
+        lines[#lines+1]=string.format("Other addon/chat traffic accounted for: %.1f KiB",(p.externalBytes or 0)/1024)
         lines[#lines+1]=p.ticks>0 and string.format("Sync tick: %.2f ms mean / %.2f ms peak; receive: %.2f ms mean / %.2f ms peak",p.totalTick/p.ticks,p.peakTick,p.totalReceive/math.max(1,p.receives),p.peakReceive) or "CPU timing: unavailable on this client"
         -- Refresh memory counters only on explicit diagnostics, not during gameplay ticks.
         G.Safe(C_AddOns and C_AddOns.UpdateAddOnMemoryUsage or UpdateAddOnMemoryUsage)
@@ -284,10 +288,9 @@ function G.BuildOfficerSettings(host)
                 end
                 -- Freeze the initial announcement grants before editing loot access.
                 if not G.store.announcementRanks then G.SetAnnouncementPolicy(G.AnnouncementsEnabled(),G.AnnouncementRanks()) end
-                G.store.officerRanks=G.store.officerRanks or {}
-                G.store.officerRanks[rank]=not G.store.officerRanks[rank] or nil
-                G.SettingsSaved()
-                G.SendOfficerAccess()
+                local ranks=G.Copy(G.store.officerRanks or {})
+                ranks[rank]=not ranks[rank] or nil
+                if G.SetOfficerAccess(ranks) then G.SettingsSaved() end
                 f.refresh()
             end)
             f.ranks[i]=b; G.SettingsQuietButton(b,false); b:SetHeight(34)
@@ -325,12 +328,13 @@ function G.BuildOfficerSettings(host)
             f.lootAccess:SetSelected(f.accessKind=="loot"); f.announcementAccess:SetSelected(f.accessKind=="announcements")
             local greens=G.GreenCaptureEnabled()
             local enabled=G.GuildLootEnabled()
+            local policyKnown=not G.GuildLootPolicyKnown or G.GuildLootPolicyKnown()
             f.enabled.text:SetText("Enable guild loot feed")
             f.enabled:SetEnabled(leader,"Only the guild master can change this switch."); f.enabled:SetSelected(enabled)
-            f.enabledNote:SetText("Only the guild master can turn this on or off for everyone.")
+            f.enabledNote:SetText(policyKnown and "Only the guild master can turn this on or off for everyone." or "Waiting for the guild master's setting. Loot sharing is paused.")
             for _,b in ipairs(f.choices) do b:SetEnabled(enabled,"Enable the guild loot feed first.") end
             f.choices[1]:SetSelected(not greens); f.choices[2]:SetSelected(greens)
-            f.explanation:SetText(not enabled and "Hidden for everyone. Loot capture and sharing are stopped." or greens and "Includes green, blue, purple and higher-quality items." or "Includes blue, purple and higher-quality items.")
+            f.explanation:SetText(not policyKnown and "The feed will appear if the guild master enables it." or not enabled and "Hidden for everyone. Loot capture and sharing are stopped." or greens and "Includes green, blue, purple and higher-quality items." or "Includes blue, purple and higher-quality items.")
             local names={}; for _,m in pairs(G.members) do if m.rankOrder then names[m.rankOrder]=m.rank end end
             local position=0
             for rank=2,10 do

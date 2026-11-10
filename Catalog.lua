@@ -56,6 +56,8 @@ function G.BookTransfer(r,target,force)
 end
 function G.ApplyBook(book)
     if type(book)~='table' or type(book.record)~='table' or type(book.record.id)~='string' or #book.record.id>180 or book.record.kind~='profession' or book.record.deleted~=false or type(book.record.data)~='table' or book.record.data.recipes~=nil then return end
+    local envelope=G.Copy(book.record); envelope.data.recipes={}
+    if not G.ValidRecordEnvelope(envelope) then return end
     if type(book.template)~='string' or #book.template~=16 or not validKeys(book.add) or not validKeys(book.remove) then return end
     if book.keys and not G.AddBookTemplate(book.template,book.keys) then return end
     local template=G.bookTemplates[book.template]
@@ -101,7 +103,7 @@ function G.PackRecord(r)
     table.sort(p.data.recipes); return p
 end
 function G.UnpackRecord(p)
-    if type(p)~='table' or type(p.data)~='table' then return nil end
+    if not G.ValidRecordEnvelope(p) then return nil end
     if p.kind~='profession' or p.deleted then return p end
     if type(p.data.recipes)~='table' or #p.data.recipes>600 then return nil end
     local missing=false; local count=0

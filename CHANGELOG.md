@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.6
+
+- Update the client API audit for WoW Forever 1.60.1, build 70888, Interface 16001.
+- Stop queued sync whispers and retries when a guild member goes offline or the client reports that the player is unavailable. Resume after they reconnect, without discarding cached character data or settings.
+- Give member sync, guild messages, replies and map updates turns within one sending budget. Account for other addon/chat traffic and handle client throttling without letting one unavailable recipient block everyone else.
+- Queue incoming catch-up requests instead of immediately producing a burst of replies. Keep comparisons moving while records change, and avoid requesting your own character snapshots from other members.
+- Prefer members with more complete shared data when filling an empty cache. Keep incomplete helpers from repeatedly redirecting newcomers through partial snapshots.
+- Skip repeated profile listings when both members already have matching profiles, while continuing to check recipes and other shared records.
+- Combine simultaneous requests for the same character profiles and recipe definitions into bounded guild replies. Keep equipment and recipe-book transfers targeted, and recover missed shared replies normally.
+- Keep recipe transfers active while useful data arrives, accept delayed definitions that are still needed, and retain the donor slot until the receiver confirms completion.
+- Stop republishing unchanged character snapshots every fifteen minutes. Routine scans keep their existing revision and update time until the data changes.
+- Keep small character and recipe changes responsive during larger transfers. Recover missed guild settings without every officer sending the same reply.
+- Protect your current character snapshots from remote replacement. Reject invalid record metadata and implausible revisions before starting recipe recovery.
+- On a fresh installation, pause loot capture and sharing until the guild master supplies the guild's loot setting. Previously learned settings remain in effect through reloads and loading screens.
+- Order officer-permission updates so a delayed older grant cannot undo a newer revocation. Recover missed permission revisions even when the visible rank selections match.
+- Preserve existing settings, Discord invites, officer configuration and valid cached guild data. Keep all required libraries bundled.
+
 ## 0.4.5
 
 - Recover member profiles and professions when a guild-wide introduction is missed, using bounded direct discovery and the existing background catch-up limits.

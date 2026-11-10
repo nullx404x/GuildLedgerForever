@@ -1,6 +1,6 @@
 # Guild Ledger
 
-A standalone guild roster, crafting directory and shared loot feed for **WoW Forever (Camelot)**. Target client: **1.60.1, build 70790, Interface 16001**. Other WoW clients are not verified.
+A standalone guild roster, crafting directory and shared loot feed for **WoW Forever (Camelot)**. Made for End Game and available to any guild. Target client: **1.60.1, build 70888, Interface 16001**. Other WoW clients are not verified.
 
 ## Install or update
 
@@ -9,7 +9,7 @@ A standalone guild roster, crafting directory and shared loot feed for **WoW For
 3. Enable Guild Ledger, log in, and type `/gl` or click the minimap book.
 4. Open each of your profession windows once to share learned recipes.
 
-For an update, replace the existing **GuildLedger addon folder**. Version 0.4.5 preserves your current settings, Discord invite, officer permissions and cached guild data. Keep your `WTF` folder and SavedVariables. If you are moving from the old beta client, install the addon in the live `_forever_` folder; beta and live are separate installations. No personal configuration or beta guild data is bundled with the download.
+For an update, replace the existing **GuildLedger addon folder**. Version 0.4.6 preserves your current settings, Discord invite, officer permissions and valid cached guild data. Keep your `WTF` folder and SavedVariables. If you are moving from the old beta client, install the addon in the live `_forever_` folder; beta and live are separate installations. No personal configuration or beta guild data is bundled with the download.
 
 All required libraries are included; no separate addon, service, account or desktop companion is needed. Very old development caches from before 0.4.0 are cleared once while their settings are retained. Back up SavedVariables before downgrading.
 
@@ -17,7 +17,7 @@ All required libraries are included; no separate addon, service, account or desk
 
 Browse compact character rows with level, class, specialization, role and profession summaries. The roster initially shows online members; choose All members to include offline characters. Search and combine class, spec and role filters. Select a character for Spec, Gear, Professions or Loot details.
 
-Spec shows the talent-point split and a short build summary. Recognized specs suggest roles automatically; personal Settings lets each player override them. Feral suggests Tank and DPS. Unknown or unrecognized builds remain unassigned. Opening Gear requests equipped slots from the member or a connected peer holding their snapshot; an unavailable item is different from an empty slot. Previously fetched equipment stays cached and can be viewed offline, with its last scan time. Online owners announce gear changes and recover missed updates; reopening an offline member's Gear tab requests the newest snapshot available from connected peers. If nobody connected holds an uncached member's gear, it remains unavailable until a suitable peer connects.
+Spec shows the talent-point split and a short build summary. Recognized specs suggest roles automatically; personal Settings lets each player override them. Feral suggests Tank and DPS. Unknown or unrecognized builds remain unassigned. Opening Gear requests equipped slots from the member or a connected peer holding their snapshot; an unavailable item is different from an empty slot. Previously fetched equipment stays cached and can be viewed offline, with the snapshot's update time. Online owners announce gear changes and recover missed updates; reopening an offline member's Gear tab requests the newest snapshot available from connected peers. If nobody connected holds an uncached member's gear, it remains unavailable until a suitable peer connects.
 
 ## Crafting
 
@@ -35,7 +35,9 @@ One shared feed, newest first, keeps **up to 500 loot records for seven days**. 
 
 Each participating member records their own qualifying self-loot messages and shares them. Quest rewards, dungeon loot and drops can appear when the client emits a supported self-loot/pushed-item message. The addon does not reconstruct past loot or infer loot from equipment. Members without the addon do not contribute their own captures. Trading does not rewrite the original recipient. Exact event delivery depends on the client and locale.
 
-Guild policy is learned from online authorized members. A new installation must meet the guild master online to receive officer-rank permissions. Previously learned settings persist through reloads and loading screens. Version 0.4.0 uses a new sync protocol. Guild members must update to 0.4.0 or a compatible newer release to exchange data, policy and map positions. Older development protocols are ignored entirely.
+**On a fresh installation, loot capture and sharing wait until the guild master is online with the addon to supply the guild's loot setting.** The same applies to a guild you have just joined. Previously learned settings stay in effect through reloads and loading screens; an update does not reset them. Officer-rank permissions also come directly from the guild master, while authorized officers can share the loot-quality threshold.
+
+Members should use the current release to receive all fixes and permission safeguards. Compatible 0.4.x versions can still exchange ordinary data; older development protocols are ignored.
 
 ## Discord and settings
 
@@ -72,11 +74,15 @@ The guild leader can turn announcements off for everyone. Officer access has sep
 
 Guild Ledger shares talent information, equipped items, chosen roles, professions, learned recipes, scan times and qualifying loot observations with addon users in the same guild. It does not share public/officer notes, bags or banks. Data is cached in `WTF/Account/<account>/SavedVariables/GuildLedger.lua`. A confirmed guild change clears the guild cache. Previously downloaded copies cannot be remotely revoked. These are cooperative addon records, not authenticated proof of loot or equipment.
 
+Your own scans remain the source for your character's talents, equipment and professions; another member's cached copy cannot overwrite them. Received records are checked before use. Only the guild master can change the guild-wide loot switch and officer access, and older permission messages cannot reverse newer settings on updated clients.
+
 Large guilds can take several minutes or longer to fill an empty cache. The open tab gets priority; with the window closed, online profiles and the newest 20 loot entries come first. Recipes and remaining history continue in the background. Uncached equipment is fetched when its Gear tab opens. The footer counts records checked rather than claiming all gear has downloaded. Updated clients keep equipment out of background inventory comparisons; older compatible peers may still include deferred gear in those counts. Transfers are throttled; progress resumes after temporary interruptions and already held records are skipped. A transfer finishing does not mean every member's data is current.
 
 Recipe definitions are shared across members; books hold compact keys both in memory and on disk. Transfers reuse shared recipe-list templates and send each member's differences, with recovery if a template is missing. Small changes are announced directly, with periodic discovery as a recovery path. Small loot updates are sent once to the guild; older compatible clients can still request the record normally. Busy catch-up sources are given time to recover while another peer is tried. Catch-up prefers one source and allows a second after a stall. Matching recent snapshots use change-only updates; otherwise the sender supplies a full snapshot. A book is limited to 600 recipes, with a guild catalog cap of 12,000 definitions and a 120 KiB decoded message limit; an oversized or failed scan preserves the previous snapshot and reports a diagnostic. Recipe alternatives and optional materials are not inferred. When the client supplies no loot-message ID, identical messages within two seconds are conservatively deduplicated.
 
-Updated members use smaller discovery messages. Ordinary online-status and zone changes refresh the roster without restarting data checks. New talent and profession updates receive priority during catch-up, and repeated recipe requests reuse replies that are still waiting to send. Officer-setting changes are broadcast once, with targeted recovery when someone misses them.
+Updated members use smaller discovery messages. Ordinary online-status and zone changes refresh the roster without restarting data checks. Comparisons continue as new records arrive. Matching profiles are skipped during later comparisons, and simultaneous requests for the same profiles or recipe definitions can share one reply. Routine scans keep unchanged snapshots at their existing revision and update time. New talent and profession updates receive priority during catch-up, and repeated recipe requests reuse replies that are still waiting to send. Officer-setting changes are broadcast once, with recovery when someone misses them.
+
+Sync and map updates share one sending budget, with turns for replies, guild messages and individual transfers. Where the client exposes the supported send hooks, other addon and chat traffic also uses that allowance. Sending slows during combat and just after loading screens. Offline recipients and client refusals pause the affected work; they do not discard your saved records or hold up unrelated recipients. Actual catch-up time depends on how much data is missing, available members and client traffic.
 
 Sync status distinguishes finding a member, learning their version, receiving their records and completing a data check. Knowing a member's version does not mean all their data has arrived. Diagnostics includes these states alongside local sync traffic, send refusals, and average/peak processing times where supported. Addon memory is sampled when you open diagnostics; its displayed peak is the largest of those samples, not a continuous memory monitor. No performance data is broadcast.
 
@@ -84,10 +90,11 @@ Sync status distinguishes finding a member, learning their version, receiving th
 
 - **Waiting for roster:** open WoW's guild window, wait a few seconds, then `/gl sync`. Incomplete rosters pause sharing to avoid removing valid data.
 - **Waiting for peers:** another guild member with the addon must be online. Repeated sync commands do not bypass throttling.
+- **Waiting for guild loot settings:** be online with the guild master using the addon. Loot capture and sharing stay paused until that setting arrives; other features continue working.
 - **Missing recipes:** open each profession window, then `/gl scan`. Linked or other players' profession windows are not scanned as yours.
 - **Missing gear names/icons:** allow the item cache to load, then `/gl scan` and hover again.
 - **Missing green loot:** ask an authorized officer to check the guild threshold. History older than seven days or beyond the 500-record cap expires.
 - **Window offscreen:** `/gl resetpos`.
 - **Reporting a problem:** include addon version, client build, what happened, reproduction steps, and the exact Lua error if any. `/gl diagnostics` provides a copyable report; it includes peer character names, so review it before posting publicly.
 
-Limited in-game UI checks and automated tests have been performed. Multi-player live acceptance testing remains incomplete; see the release checklist in the source workspace. See `CHANGELOG.md` for changes and `Libs/THIRD_PARTY.txt` for bundled-library notices.
+The current client API audit and automated simulations are separate from live testing. Earlier in-game checks do not establish multiplayer performance for this release; see the release checklist in the source workspace for outstanding live checks. See `CHANGELOG.md` for changes and `Libs/THIRD_PARTY.txt` for bundled-library notices.
